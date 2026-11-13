@@ -72,6 +72,21 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
 
+      - name: Free disk if needed
+        # На сервере ~8 ГБ диска: если места меньше 1 ГБ, прошлая версия удаляется до загрузки новой
+        # (кратковременный простой вместо провала деплоя; откат в этом случае невозможен).
+        run: |
+          ssh -i "$HOME/.ssh/deploy_key" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes             "$DEPLOY_USER@$DEPLOY_HOST" '
+              avail=$(df --output=avail -BM / | tail -1 | tr -dc 0-9)
+              echo "свободно ${avail} МБ"
+              if [ "$avail" -lt 1000 ]; then
+                echo "мало места: останавливаю приложение и удаляю прошлый образ"
+                docker stop aimarketer-app-1 || true
+                docker images aimarketer -q | sort -u | xargs -r docker rmi -f || true
+                docker image prune -f >/dev/null || true
+                df -h / | tail -1
+              fi'
+
       - name: Upload image and config
         run: |
           SSH="ssh -i $HOME/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes"
