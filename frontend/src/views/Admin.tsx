@@ -141,7 +141,7 @@ function CompanyPage({ id, back, limitsEditable }: { id: number; back?: () => vo
       {tab === "Каналы" && <Channels id={id} />}
       {tab === "Команда" && <Team id={id} />}
       {tab === "Задачи" && <Tasks id={id} />}
-      {tab === "Посты" && <Posts id={id} />}
+      {tab === "Посты" && <Posts id={id} canDecide={!limitsEditable} />}
       {tab === "Журнал" && <Log id={id} />}
     </>
   );
@@ -462,10 +462,23 @@ function Tasks({ id }: { id: number }) {
   );
 }
 
-function Posts({ id }: { id: number }) {
-  const [posts] = useLoad(() => api.companyPosts(id), [id]);
+function Posts({ id, canDecide }: { id: number; canDecide: boolean }) {
+  const [posts, reload] = useLoad(() => api.companyPosts(id), [id]);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState<number | null>(null);
+  const decide = async (pid: number, decision: "approve" | "reject" | "revise") => {
+    let comment = "";
+    if (decision === "revise") {
+      comment = prompt("Что изменить в материале?") ?? "";
+      if (!comment.trim()) return;
+    }
+    setBusy(pid); setErr("");
+    try { await api.decide(pid, decision, comment); } catch (e) { setErr((e as Error).message); }
+    setBusy(null); reload();
+  };
   return (
     <div>
+      {err && <div className="card error">{err}</div>}
       {(posts ?? []).map((p) => (
         <div className="card" key={p.id}>
           <div className="meta">#{p.id} · v{p.version} · {p.platform} · {fmtDate(p.created_at)} <StatusChip status={p.status} /></div>
@@ -473,6 +486,13 @@ function Posts({ id }: { id: number }) {
           <p className="postText">{p.text}</p>
           {p.check_notes && <div className="note">🔎 {p.check_notes}</div>}
           {p.error && <div className="error">{p.error}</div>}
+          {canDecide && p.status === "pending_approval" && (
+            <div className="row">
+              <button className="primary" disabled={busy === p.id} onClick={() => decide(p.id, "approve")}>✅ Одобрить</button>
+              <button disabled={busy === p.id} onClick={() => decide(p.id, "reject")}>❌ Отклонить</button>
+              <button disabled={busy === p.id} onClick={() => decide(p.id, "revise")}>✏️ Доработать</button>
+            </div>
+          )}
         </div>
       ))}
       {posts?.length === 0 && <div className="card muted">Постов пока нет.</div>}
