@@ -196,6 +196,36 @@ function Overview({ company, go, limitsEditable }: { company: Company; go: (t: T
   );
 }
 
+function ContextFiles({ id }: { id: number }) {
+  const [data, reload, loadErr] = useLoad(() => api.contextFiles(id), [id]);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const upload = async (file: File | undefined) => {
+    if (!file) return;
+    setBusy(true); setErr("");
+    try { await api.uploadContextFile(id, file); reload(); } catch (e) { setErr((e as Error).message); }
+    setBusy(false);
+  };
+  if (data && !data.enabled) return <div className="card muted">Хранилище файлов (Yandex Object Storage) не настроено на сервере.</div>;
+  return (
+    <div className="card">
+      <div className="cardHead"><b>Файлы контекста</b>
+        <label className="uploadBtn">{busy ? "Загрузка…" : "+ Загрузить"}
+          <input type="file" hidden accept=".txt,.md,.csv,.json,.html,.pdf,.docx" onChange={(e) => { upload(e.target.files?.[0]); e.target.value = ""; }} /></label>
+      </div>
+      <p className="muted">TXT, MD, CSV, JSON, PDF, DOCX до 10 МБ. Текст файлов агент использует как знания о компании.</p>
+      {(err || loadErr) && <div className="error">{err || loadErr}</div>}
+      {(data?.files ?? []).map((f) => (
+        <div className="cardHead" key={f.name}>
+          <span>{f.name} <span className="muted">· {Math.ceil(f.size / 1024)} КБ{f.supported ? "" : " · формат не читается"}</span></span>
+          <button className="ghost" onClick={async () => { if (confirm(`Удалить «${f.name}»?`)) { await api.deleteContextFile(id, f.name); reload(); } }}>Удалить</button>
+        </div>
+      ))}
+      {data?.files.length === 0 && <p className="muted">Файлов пока нет.</p>}
+    </div>
+  );
+}
+
 function Knowledge({ id }: { id: number }) {
   const [docs, reload] = useLoad(() => api.knowledge(id), [id]);
   // editing = null (создание нового) или id редактируемого документа
@@ -239,6 +269,7 @@ function Knowledge({ id }: { id: number }) {
           </div>
         ))}
         {docs?.length === 0 && <div className="card muted">База знаний пуста. Агент не сможет опираться на факты о компании.</div>}
+        <ContextFiles id={id} />
       </div>
     </div>
   );

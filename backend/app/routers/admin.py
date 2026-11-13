@@ -8,8 +8,8 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .. import branding, limits, services
-from ..auth import Ctx, require_admin, require_manager
+from .. import branding, context_files, handlers, jobs, limits, services, storage
+from ..auth import Ctx, require_admin
 from ..config import settings
 from ..db import get_session, utcnow
 from ..media import media_path, new_media_file
@@ -89,6 +89,7 @@ async def update_company(company_id: int, body: CompanyUpdate, ctx: Ctx = Depend
         setattr(company, k, v)
     await session.commit()
     await services.audit(session, company_id, ctx.user.id, "company.updated", ", ".join(changes))
+    await context_files.invalidate(company_id)  # профиль бизнеса и правила бренда лежат в кэше контекста
     return {"ok": True}
 
 
@@ -106,6 +107,7 @@ async def update_knowledge(doc_id: int, body: KnowledgeIn, ctx: Ctx = Depends(re
     doc.title, doc.content, doc.updated_at = body.title, body.content, utcnow()
     await session.commit()
     await services.audit(session, doc.company_id, ctx.user.id, "knowledge.updated", doc.title)
+    await context_files.invalidate(doc.company_id)
     return {"ok": True}
 
 
@@ -209,6 +211,7 @@ async def add_knowledge(company_id: int, body: KnowledgeIn, session: AsyncSessio
     doc = KnowledgeDoc(company_id=company_id, title=body.title, content=body.content)
     session.add(doc)
     await session.commit()
+    await context_files.invalidate(company_id)
     return {"id": doc.id}
 
 
@@ -367,7 +370,67 @@ async def delete_knowledge(doc_id: int, ctx: Ctx = Depends(require_manager), ses
     await session.delete(doc)
     await session.commit()
     await services.audit(session, doc.company_id, ctx.user.id, "knowledge.deleted", doc.title)
+    await context_files.invalidate(doc.company_id)
     return {"ok": True}
+
+
+# ---------- файлы контекста организации (Yandex Object Storage: {organization_id}/{файл}) ----------
+
+@router.get("/companies/{company_id}/files")
+async def list_context_files(company_id: int, session: AsyncSession = Depends(get_session)):
+    await _company(session, company_id)
+    if not storage.enabled():
+        return {"enabled": False, "files": []}
+    try:
+        return {"enabled": True, "files": await context_files.list_for_api(company_id)}
+    except Exception as e:
+        raise HTTPException(502, f"Хранилище недоступно: {e}")
+
+
+@router.post("/companies/{company_id}/files")
+async def upload_context_file(
+    company_id: int, file: UploadFile = File(...), ctx: Ctx = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    await _company(session, company_id)
+    data = await file.read(settings.max_context_file_mb * 1024 * 1024 + 1)
+    try:
+        info = await context_files.upload(company_id, file.filename or "", data, file.content_type or "application/octet-stream")
+    except (context_files.UnsupportedFile, storage.StorageError) as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        raise HTTPException(502, f"Хранилище недоступно: {e}")
+    await services.audit(session, company_id, ctx.user.id, "context_file.uploaded", info["name"])
+    return info
+
+
+@router.delete("/companies/{company_id}/files/{filename}")
+async def delete_context_file(
+    company_id: int, filename: str, ctx: Ctx = Depends(require_admin), session: AsyncSession = Depends(get_session),
+):
+    await _company(session, company_id)
+    try:
+        await context_files.remove(company_id, filename)
+    except storage.StorageError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        raise HTTPException(502, f"Хранилище недоступно: {e}")
+    await services.audit(session, company_id, ctx.user.id, "context_file.deleted", filename)
+    return {"ok": True}
+
+
+# ---------- очереди и аналитика ----------
+
+@router.get("/queues")
+async def queue_stats():
+    """Состояние очередей: waiting / active / completed / failed / delayed (пусто в inline-режиме без Redis)."""
+    return {"mode": jobs.queue_mode(), "queues": await jobs.stats()}
+
+
+@router.get("/analytics")
+async def analytics(session: AsyncSession = Depends(get_session)):
+    companies = (await session.execute(select(Company).order_by(Company.id))).scalars().all()
+    return [await handlers.get_snapshot(session, c) for c in companies]
 
 
 @router.get("/audit")

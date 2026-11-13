@@ -18,6 +18,7 @@ export type Stat = {
   id: number; name: string; posts: Record<string, number>; users: number; channels: number; tokens: number;
   cost_usd: number; month_tokens: number; monthly_token_limit: number;
 };
+export type ContextFile = { name: string; size: number; modified: string; supported: boolean };
 export type Doc = { id: number; title: string; content: string; size: number; updated_at: string | null };
 export type Social = { id: number; platform: string; channel_id: string; active: boolean };
 export type Member = { id: number; telegram_id: number; name: string; role: string };
@@ -78,6 +79,16 @@ export const api = {
   addKnowledge: (id: number, title: string, content: string) =>
     req("POST", `${A}/companies/${id}/knowledge`, { title, content }),
   deleteKnowledge: (docId: number) => req("DELETE", `${A}/knowledge/${docId}`),
+  contextFiles: (id: number) => req<{ enabled: boolean; files: ContextFile[] }>("GET", `${A}/companies/${id}/files`),
+  deleteContextFile: (id: number, name: string) => req("DELETE", `${A}/companies/${id}/files/${encodeURIComponent(name)}`),
+  uploadContextFile: async (id: number, file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const h = headers(); delete h["Content-Type"];
+    const res = await fetch(`${A}/companies/${id}/files`, { method: "POST", headers: h, body: fd });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail ?? `HTTP ${res.status}`);
+    return res.json();
+  },
   socials: (id: number) => req<Social[]>("GET", `${A}/companies/${id}/social`),
   addSocial: (id: number, channel_id: string) =>
     req("POST", `${A}/companies/${id}/social`, { platform: "telegram", channel_id }),

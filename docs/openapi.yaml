@@ -311,6 +311,44 @@ paths:
       summary: Удалить документ
       x-status: implemented
       responses: {'200': {$ref: '#/components/responses/Ok'}}
+  /api/admin/companies/{company_id}/files:
+    parameters: [{$ref: '#/components/parameters/CompanyId'}]
+    get:
+      tags: [admin]
+      summary: Файлы контекста организации в Yandex S3 (путь {organization_id}/{файл})
+      x-status: implemented
+      responses: {'200': {description: 'OK: {enabled, files[{name,size,modified,supported}]}'}, '502': {description: Хранилище недоступно}}
+    post:
+      tags: [admin]
+      summary: Загрузить файл контекста (multipart; TXT/MD/CSV/JSON/HTML/PDF/DOCX, ≤10 МБ)
+      x-status: implemented
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: {type: object, required: [file], properties: {file: {type: string, format: binary}}}
+      responses: {'200': {description: 'OK: {name,key,size}'}, '400': {description: Недопустимый формат или размер}}
+  /api/admin/companies/{company_id}/files/{filename}:
+    parameters:
+      - {$ref: '#/components/parameters/CompanyId'}
+      - {name: filename, in: path, required: true, schema: {type: string}}
+    delete:
+      tags: [admin]
+      summary: Удалить файл контекста
+      x-status: implemented
+      responses: {'200': {$ref: '#/components/responses/Ok'}}
+  /api/admin/queues:
+    get:
+      tags: [admin]
+      summary: Состояние очередей BullMQ (waiting/active/completed/failed/delayed)
+      x-status: implemented
+      responses: {'200': {description: 'OK: {mode: bullmq|inline, queues: {имя: {состояние: число}}}'}}
+  /api/admin/analytics:
+    get:
+      tags: [admin]
+      summary: Почасовая сводка по организациям (публикации, расходы, лимиты)
+      x-status: implemented
+      responses: {'200': {description: OK}}
   /api/admin/companies/{company_id}/assets:
     parameters: [{$ref: '#/components/parameters/CompanyId'}]
     get:

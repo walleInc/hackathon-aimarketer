@@ -32,6 +32,26 @@ class Settings(BaseSettings):
     media_dir: str = "media"
     scheduler_interval_sec: int = 30
 
+    # --- Redis: кэш, лимиты, блокировки, состояние диалога, pub/sub, очереди BullMQ ---
+    # Пусто = встроенный in-memory Redis (fakeredis) и выполнение задач в том же процессе: для тестов и локальной разработки.
+    redis_url: str = ""
+    cache_ttl_sec: int = 300
+    dialog_state_ttl_sec: int = 86400
+    ai_rate_limit_per_min: int = 10  # запросов к AI в минуту на организацию
+    ai_rate_limit_per_user_per_min: int = 6  # ...и на одного пользователя
+    run_workers: bool = True  # запускать воркеры очередей в этом процессе
+    ai_concurrency: int = 2  # одновременных AI-генераций (контроль расходов на LLM)
+    ai_org_concurrency: int = 1  # ...из них на одну организацию
+
+    # --- Yandex Object Storage (S3): файлы контекста организации лежат по пути {organization_id}/{файл} ---
+    s3_endpoint: str = "https://storage.yandexcloud.net"
+    s3_region: str = "ru-central1"
+    s3_bucket: str = ""
+    s3_access_key_id: str = ""
+    s3_secret_access_key: str = ""
+    context_files_limit: int = 12000  # символов контекста из файлов в системном промпте
+    max_context_file_mb: int = 10
+
     @property
     def admin_id_set(self) -> set[int]:
         return {int(x) for x in self.admin_ids.split(",") if x.strip().isdigit()}

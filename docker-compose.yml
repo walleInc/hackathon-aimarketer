@@ -9,14 +9,24 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redisdata:/data
+    ports:
+      - "6379:6379"
+
   app:
     build: .
     restart: unless-stopped
-    depends_on: [db]
+    depends_on: [db, redis]
     env_file: backend/.env
     environment:
       DATABASE_URL: postgresql+asyncpg://marketer:marketer@db:5432/marketer
       MEDIA_DIR: /data/media
+      REDIS_URL: redis://redis:6379/0
     volumes:
       - media:/data/media
     ports:
@@ -25,3 +35,4 @@ services:
 volumes:
   pgdata:
   media:
+  redisdata:
