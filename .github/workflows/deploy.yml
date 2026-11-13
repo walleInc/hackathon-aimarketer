@@ -1,0 +1,98 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Деплои идут строго по очереди, незавершённый не прерывается
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: Backend tests
+        working-directory: backend
+        run: |
+          pip install -r requirements.txt
+          python -m pytest -q
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Frontend build
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.sha }}
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: aimarketer:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Configure SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Upload image and config
+        run: |
+          SSH="ssh -i $HOME/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes"
+          docker save "aimarketer:$TAG" | gzip | $SSH "$DEPLOY_USER@$DEPLOY_HOST" 'gunzip | docker load'
+          $SSH "$DEPLOY_USER@$DEPLOY_HOST" 'mkdir -p ~/aimarketer/caddy'
+          scp -i "$HOME/.ssh/deploy_key" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            docker-compose.prod.yml "$DEPLOY_USER@$DEPLOY_HOST:aimarketer/docker-compose.yml"
+          scp -i "$HOME/.ssh/deploy_key" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            deploy/remote-deploy.sh "$DEPLOY_USER@$DEPLOY_HOST:aimarketer/remote-deploy.sh"
+          scp -i "$HOME/.ssh/deploy_key" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            deploy/aimarketer.caddy "$DEPLOY_USER@$DEPLOY_HOST:aimarketer/caddy/aimarketer.caddy"
+
+      - name: Deploy (удаляет прошлую версию)
+        run: |
+          ssh -i "$HOME/.ssh/deploy_key" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            "$DEPLOY_USER@$DEPLOY_HOST" "bash ~/aimarketer/remote-deploy.sh $TAG"
+
+      - name: Smoke test
+        run: |
+          for i in $(seq 1 12); do
+            if curl -fsS "https://194-226-125-175.sslip.io/health"; then echo; exit 0; fi
+            echo "ждём сертификат/приложение ($i/12)…"; sleep 10
+          done
+          echo "::error::/health недоступен после деплоя"; exit 1

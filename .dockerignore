@@ -1,0 +1,18 @@
+# Контекст сборки: только исходники. Секреты и тяжёлые файлы в образ не попадают.
+**/.env
+**/*.env
+**/*.db
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/node_modules
+frontend/dist
+backend/media
+backend/brand_packs
+Основные и дополнительные визуальные элементы бренда
+*.pdf
+.git
+.github
+docs
+.claude
+backups

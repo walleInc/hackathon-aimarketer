@@ -1,0 +1,23 @@
+# Секреты и локальные данные
+.env
+*.env
+*.db
+backend/media/
+backups/
+
+# Окружения и сборка
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+node_modules/
+frontend/dist/
+
+# Материалы клиента: репозиторий публичный, бренд-пакет и брендбук хранятся вне git
+backend/brand_packs/
+Основные и дополнительные визуальные элементы бренда/
+Брендбук*.pdf
+*.pdf
+
+# Инструменты
+.claude/

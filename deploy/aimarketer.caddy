@@ -1,0 +1,7 @@
+194-226-125-175.sslip.io {
+	encode zstd gzip
+	request_body {
+		max_size 20MB
+	}
+	reverse_proxy aimarketer-app:8000
+}

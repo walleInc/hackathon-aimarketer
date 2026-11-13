@@ -1,0 +1,27 @@
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: marketer
+      POSTGRES_PASSWORD: marketer
+      POSTGRES_DB: marketer
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on: [db]
+    env_file: backend/.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://marketer:marketer@db:5432/marketer
+      MEDIA_DIR: /data/media
+    volumes:
+      - media:/data/media
+    ports:
+      - "8000:8000"
+
+volumes:
+  pgdata:
+  media:
