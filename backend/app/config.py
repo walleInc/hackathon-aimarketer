@@ -10,6 +10,9 @@ class Settings(BaseSettings):
 
     bot_token: str = ""
     public_url: str = ""
+    # webhook | polling. На серверах, куда Telegram не может достучаться (блокировки в РФ), нужен polling:
+    # Mini App при этом по-прежнему открывается по PUBLIC_URL.
+    bot_mode: str = "webhook"
     webhook_secret: str = "change-me"
     admin_ids: str = ""
 

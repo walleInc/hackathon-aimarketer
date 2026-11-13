@@ -35,6 +35,21 @@ async def _set_webhook_with_retries(attempts: int = 20) -> None:
     log.error("webhook так и не установлен — бот не будет получать сообщения")
 
 
+async def _run_polling() -> None:
+    """Long polling: сервер сам забирает сообщения, входящий доступ из Telegram не нужен."""
+    while True:
+        try:
+            await tg.bot.delete_webhook()  # webhook и polling взаимоисключающи; очередь не сбрасываем
+            log.info("бот запущен в режиме long polling")
+            await tg.dp.start_polling(tg.bot, handle_signals=False)
+            return
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            log.warning("polling не запущен, повтор через 10 с: %s", e)
+            await asyncio.sleep(10)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
@@ -43,12 +58,11 @@ async def lifespan(app: FastAPI):
     scheduler.start()
     background: asyncio.Task | None = None
     if tg.bot:
-        if settings.public_url:
+        if settings.public_url and settings.bot_mode == "webhook":
             # Telegram может быть временно недоступен: сервис всё равно стартует, webhook ставится с повторами
             background = asyncio.create_task(_set_webhook_with_retries())
-        else:  # локальная разработка без публичного адреса
-            await tg.bot.delete_webhook()
-            background = asyncio.create_task(tg.dp.start_polling(tg.bot, handle_signals=False))
+        else:  # локальная разработка или сервер, недоступный для webhook
+            background = asyncio.create_task(_run_polling())
     yield
     scheduler.shutdown(wait=False)
     if background:
