@@ -85,6 +85,18 @@ test('profile persists across tabs; all company sections open on mobile', async 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
   await page.getByRole('button', { name: /Тестовая компания/ }).click();
+  const navigation = page.getByRole('tablist', { name: 'Разделы компании' });
+  const dock = await navigation.evaluate((list) => {
+    const rect = list.getBoundingClientRect();
+    const tabs = [...list.querySelectorAll('[role="tab"]')];
+    return {
+      inside: rect.left >= 0 && rect.right <= window.innerWidth,
+      bottom: rect.bottom > window.innerHeight - 100 && rect.bottom <= window.innerHeight,
+      scrolls: list.scrollWidth > list.clientWidth,
+      singleRow: new Set(tabs.map((tab) => tab.getBoundingClientRect().top)).size === 1,
+    };
+  });
+  expect(dock).toEqual({ inside: true, bottom: true, scrolls: true, singleRow: true });
   await page
     .getByLabel('Название', { exact: true })
     .fill('Обновлённая компания');

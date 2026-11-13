@@ -466,3 +466,55 @@
     grid-template-columns: 1fr;
   }
 }
+
+@media (max-width: 720px) {
+  .company-tabs {
+    min-width: 0;
+    padding-bottom: calc(92px + env(safe-area-inset-bottom, 0px));
+  }
+  .company-navigation {
+    position: fixed;
+    z-index: 40;
+    right: max(12px, env(safe-area-inset-right, 0px));
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    left: max(12px, env(safe-area-inset-left, 0px));
+    padding: 5px;
+    border: 1px solid rgb(255 255 255 / 80%);
+    border-radius: 28px;
+    background: linear-gradient(135deg, rgb(255 255 255 / 84%), rgb(225 242 245 / 74%));
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    backdrop-filter: blur(24px) saturate(180%);
+    box-shadow: 0 8px 32px rgb(25 108 127 / 18%), inset 0 1px 1px rgb(255 255 255 / 95%);
+  }
+  .company-tabs-list {
+    position: relative;
+    display: flex;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    width: 100%;
+    height: auto;
+    gap: 4px;
+    padding: 3px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    border-radius: 22px;
+    background: transparent;
+  }
+  .company-tabs-list::-webkit-scrollbar {
+    display: none;
+  }
+  .company-tabs-list [role='tab'] {
+    flex: 0 0 auto;
+    height: 46px;
+    padding: 0 18px;
+    border-radius: 20px;
+    scroll-margin-inline: 8px;
+  }
+  .company-tabs-list [role='tab'][data-state='active'] {
+    color: var(--brand-dark);
+    background: rgb(255 255 255 / 88%);
+    border-color: rgb(255 255 255 / 95%);
+    box-shadow: 0 2px 8px rgb(25 108 127 / 12%), inset 0 1px 0 white;
+  }
+}

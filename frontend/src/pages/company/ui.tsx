@@ -1,5 +1,5 @@
 import { Button, Tabs, TabsList, TabsTrigger, TabsContent } from '@/shared/ui';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '@/entities/marketing';
 import { useLoad } from '@/shared/lib';
 
@@ -32,6 +32,15 @@ export function CompanyPage({
   limitsEditable: boolean;
 }) {
   const [tab, setTab] = useState<TabName>('Обзор');
+  const navigation = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!window.matchMedia('(max-width: 720px)').matches) return;
+    const list = navigation.current?.querySelector<HTMLElement>('[role="tablist"]');
+    const active = list?.querySelector<HTMLElement>('[data-state="active"]');
+    if (list && active) {
+      list.scrollTo({ left: active.offsetLeft - (list.clientWidth - active.offsetWidth) / 2 });
+    }
+  }, [tab]);
   const [companies, reload, error] = useLoad(() => api.companies(), [id]);
   const company = companies?.find((c) => c.id === id);
 
@@ -50,14 +59,16 @@ export function CompanyPage({
         </div>
       )}
       <h1>{company?.name ?? '…'}</h1>
-      <Tabs value={tab} onValueChange={(value) => setTab(value as TabName)}>
-        <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1">
+      <Tabs className="company-tabs" value={tab} onValueChange={(value) => setTab(value as TabName)}>
+        <div ref={navigation} className="company-navigation">
+        <TabsList aria-label="Разделы компании" className="company-tabs-list flex h-auto w-full flex-wrap justify-start gap-1">
           {TABS.map((t) => (
             <TabsTrigger key={t} value={t}>
               {t}
             </TabsTrigger>
           ))}
         </TabsList>
+        </div>
         <TabsContent value="Обзор">
           {company && (
             <Overview
