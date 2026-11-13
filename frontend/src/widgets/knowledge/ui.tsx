@@ -112,7 +112,7 @@ export function Knowledge({ id }: { id: number }) {
                   </ConfirmAction>
                 </span>
               </div>
-              <p className="clip">{x.content}</p>
+              <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{x.content}</p>
               <span className="muted">
                 {x.size} симв.
                 {x.updated_at ? ` · изменён ${fmtDate(x.updated_at)}` : ''}
