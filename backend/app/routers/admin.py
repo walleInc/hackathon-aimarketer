@@ -289,6 +289,40 @@ async def company_users(company_id: int, session: AsyncSession = Depends(get_ses
     return [{"id": u.id, "telegram_id": u.telegram_id, "name": u.name, "role": u.role} for u in rows]
 
 
+class RoleIn(BaseModel):
+    role: str  # approver | member
+
+
+async def _team_member(session: AsyncSession, ctx: Ctx, company_id: int, user_id: int) -> User:
+    user = await session.get(User, user_id)
+    if user is None or user.company_id != company_id or user.role == "admin":
+        raise HTTPException(404, "Сотрудник не найден")
+    if user.id == ctx.user.id:
+        raise HTTPException(409, "Нельзя изменить самого себя")
+    return user
+
+
+@router.patch("/companies/{company_id}/users/{user_id}")
+async def change_role(company_id: int, user_id: int, body: RoleIn, ctx: Ctx = Depends(require_manager), session: AsyncSession = Depends(get_session)):
+    if body.role not in ("approver", "member"):
+        raise HTTPException(422, "role must be approver|member")
+    user = await _team_member(session, ctx, company_id, user_id)
+    user.role = body.role
+    await session.commit()
+    await services.audit(session, company_id, ctx.user.id, "user.role_changed", f"user={user.telegram_id} role={body.role}")
+    return {"ok": True}
+
+
+@router.delete("/companies/{company_id}/users/{user_id}")
+async def remove_member(company_id: int, user_id: int, ctx: Ctx = Depends(require_manager), session: AsyncSession = Depends(get_session)):
+    """Отзыв доступа: человек отвязывается от компании. Строка остаётся, чтобы не ломать историю решений и журнал."""
+    user = await _team_member(session, ctx, company_id, user_id)
+    user.company_id, user.role, user.state = None, "member", ""
+    await session.commit()
+    await services.audit(session, company_id, ctx.user.id, "user.removed", f"user={user.telegram_id}")
+    return {"ok": True}
+
+
 @router.get("/companies/{company_id}/posts")
 async def company_posts(company_id: int, session: AsyncSession = Depends(get_session)):
     rows = (await session.execute(select(Post).where(Post.company_id == company_id).order_by(Post.id.desc()).limit(50))).scalars()

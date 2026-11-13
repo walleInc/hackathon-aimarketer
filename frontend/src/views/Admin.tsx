@@ -360,6 +360,8 @@ function Channels({ id }: { id: number }) {
 function Team({ id }: { id: number }) {
   const [members, reload] = useLoad(() => api.members(id), [id]);
   const [code, setCode] = useState("");
+  const [err, setErr] = useState("");
+  const act = async (fn: () => Promise<unknown>) => { try { await fn(); setErr(""); reload(); } catch (e) { setErr((e as Error).message); } };
   const invite = async (role: string) => { setCode((await api.invite(id, role)).code); reload(); };
   const ROLE: Record<string, string> = { approver: "Администратор компании", member: "Сотрудник", admin: "Тех. аккаунт" };
   return (
@@ -381,8 +383,19 @@ function Team({ id }: { id: number }) {
           <div className="card" key={m.id}>
             <div className="cardHead"><b>{m.name || `ID ${m.telegram_id}`}</b><span className="badge">{ROLE[m.role] ?? m.role}</span></div>
             <span className="muted">Telegram ID {m.telegram_id}</span>
+            {m.role !== "admin" && (
+              <div className="row">
+                <button className="ghost" onClick={() => act(() => api.setRole(id, m.id, m.role === "approver" ? "member" : "approver"))}>
+                  {m.role === "approver" ? "Сделать сотрудником" : "Сделать администратором компании"}
+                </button>
+                <button className="ghost" onClick={() => confirm("Отозвать доступ? Человек потеряет связь с компанией.") && act(() => api.removeMember(id, m.id))}>
+                  Удалить из компании
+                </button>
+              </div>
+            )}
           </div>
         ))}
+        {err && <div className="card error">{err}</div>}
         {members?.length === 0 && <div className="card muted">В команде пока никого.</div>}
       </div>
     </div>

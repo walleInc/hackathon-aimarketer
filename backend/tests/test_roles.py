@@ -105,3 +105,23 @@ async def test_company_admin_configures_only_own_company(client, env):
 async def test_employee_has_no_cabinet(client, env):
     assert (await client.get("/api/admin/companies", headers=EMPLOYEE)).status_code == 403
     assert (await client.get(f"/api/admin/companies/{env['a']}/knowledge", headers=EMPLOYEE)).status_code == 403
+
+
+async def test_company_admin_changes_roles_and_removes_members(client, env):
+    from sqlalchemy import select
+    from app.db import SessionLocal
+    from app.models import User
+
+    async def uid(tg):
+        async with SessionLocal() as s:
+            return (await s.execute(select(User.id).where(User.telegram_id == tg))).scalar_one()
+
+    a = env["a"]
+    emp = await uid(101)
+    assert (await client.patch(f"/api/admin/companies/{a}/users/{emp}", headers=COMPANY_ADMIN, json={"role": "approver"})).status_code == 200
+    assert (await client.post("/api/agent/message", headers=EMPLOYEE, json={"text": "Напиши пост"})).status_code == 200
+    assert (await client.delete(f"/api/admin/companies/{a}/users/{await uid(100)}", headers=COMPANY_ADMIN)).status_code == 409  # себя нельзя
+    assert (await client.delete(f"/api/admin/companies/{a}/users/{await uid(200)}", headers=COMPANY_ADMIN)).status_code == 404  # чужая компания
+    assert (await client.delete(f"/api/admin/companies/{a}/users/{emp}", headers=COMPANY_ADMIN)).status_code == 200
+    assert (await client.post("/api/agent/message", headers=EMPLOYEE, json={"text": "Напиши пост"})).status_code == 400  # доступ отозван
+    assert (await client.get("/api/admin/companies", headers=EMPLOYEE)).status_code == 403

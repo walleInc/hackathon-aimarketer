@@ -213,7 +213,10 @@ async def on_text(message: Message) -> None:
         if user is None:
             await message.answer("Для доступа нужна ссылка-приглашение от вашего менеджера.")
             return
-        if user.role == "admin" or user.company_id is None:
+        if user.role != "admin" and user.company_id is None:
+            await message.answer("У вас нет доступа к компании. Нужна новая ссылка-приглашение от администратора.")
+            return
+        if user.role == "admin":
             await message.answer(
                 "Это технический аккаунт: компании настраиваются в кабинете. Материалы создают сотрудники компаний.",
                 reply_markup=_webapp_markup(),

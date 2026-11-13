@@ -82,6 +82,8 @@ export const api = {
   addSocial: (id: number, channel_id: string) =>
     req("POST", `${A}/companies/${id}/social`, { platform: "telegram", channel_id }),
   revokeSocial: (accountId: number) => req("DELETE", `${A}/social/${accountId}`),
+  setRole: (cid: number, userId: number, role: string) => req("PATCH", `${A}/companies/${cid}/users/${userId}`, { role }),
+  removeMember: (cid: number, userId: number) => req("DELETE", `${A}/companies/${cid}/users/${userId}`),
   members: (id: number) => req<Member[]>("GET", `${A}/companies/${id}/users`),
   companyPosts: (id: number) => req<Post[]>("GET", `${A}/companies/${id}/posts`),
   tasks: (id: number) => req<TaskItem[]>("GET", `${A}/companies/${id}/tasks`),
