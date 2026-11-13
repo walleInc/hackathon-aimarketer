@@ -19,9 +19,19 @@ class Ctx:
     def is_admin(self) -> bool:
         return self.user.role == "admin"
 
+    # Роли: admin — оператор сервиса (настраивает компании, материалы не создаёт и не согласует);
+    # approver — администратор компании (согласует, ставит задачи); member — сотрудник (ставит задачи).
     @property
     def can_approve(self) -> bool:
-        return self.user.role in ("admin", "approver")
+        return self.user.role == "approver"
+
+    @property
+    def can_create(self) -> bool:
+        return self.user.role in ("approver", "member")
+
+    def require_creator(self) -> None:
+        if not self.can_create:
+            raise HTTPException(403, "Оператор настраивает систему; материалы создают сотрудники компании")
 
     def require_company(self) -> int:
         if self.company_id is None:

@@ -59,7 +59,7 @@ class DecisionIn(BaseModel):
 @router.post("/posts/{post_id}/decision")
 async def decide(post_id: int, body: DecisionIn, ctx: Ctx = Depends(get_ctx), session: AsyncSession = Depends(get_session)):
     if not ctx.can_approve:
-        raise HTTPException(403, "Согласовывать может только ответственный сотрудник")
+        raise HTTPException(403, "Согласовывать может только администратор компании")
     post = await _post(session, ctx, post_id)
     if body.decision == "revise" and body.comment:
         # бюджет проверяем ДО смены статуса, чтобы пост не застрял в «на доработке»
@@ -82,6 +82,8 @@ class EditIn(BaseModel):
 
 @router.patch("/posts/{post_id}")
 async def edit(post_id: int, body: EditIn, ctx: Ctx = Depends(get_ctx), session: AsyncSession = Depends(get_session)):
+    if not ctx.can_approve:
+        raise HTTPException(403, "Править текст может только администратор компании")
     post = await _post(session, ctx, post_id)
     try:
         post = await services.edit_post_text(session, post, body.text, ctx.user.id)
@@ -96,6 +98,7 @@ class MessageIn(BaseModel):
 
 @router.post("/agent/message")
 async def agent_message(body: MessageIn, ctx: Ctx = Depends(get_ctx), session: AsyncSession = Depends(get_session)):
+    ctx.require_creator()
     res = await agent.handle_message(session, ctx.require_company(), ctx.user, body.text)
     return {"reply": res.reply, "post_id": res.post_id}
 
@@ -116,6 +119,7 @@ async def list_tasks(ctx: Ctx = Depends(get_ctx), session: AsyncSession = Depend
 
 @router.post("/tasks")
 async def create_task(body: TaskIn, ctx: Ctx = Depends(get_ctx), session: AsyncSession = Depends(get_session)):
+    ctx.require_creator()
     task = Task(company_id=ctx.require_company(), prompt=body.prompt, interval_minutes=max(body.interval_minutes, 1))
     session.add(task)
     await session.commit()

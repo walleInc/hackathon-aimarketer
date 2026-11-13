@@ -216,7 +216,7 @@ function Overview({ company, go }: { company: Company; go: (t: TabName) => void 
   const steps: [string, boolean, TabName][] = [
     ["Загружены знания о компании", (docs?.length ?? 0) > 0, "Знания"],
     ["Подключён канал для публикаций", (socials ?? []).some((s) => s.active), "Каналы"],
-    ["Есть согласующий сотрудник", (members ?? []).some((m) => m.role === "approver" || m.role === "admin"), "Команда"],
+    ["Есть администратор компании (согласующий)", (members ?? []).some((m) => m.role === "approver"), "Команда"],
   ];
   const save = async () => {
     try { await api.updateCompany(company.id, f); setMsg("Сохранено"); } catch (e) { setMsg((e as Error).message); }
@@ -414,17 +414,20 @@ function Team({ id }: { id: number }) {
   const [members, reload] = useLoad(() => api.members(id), [id]);
   const [code, setCode] = useState("");
   const invite = async (role: string) => { setCode((await api.invite(id, role)).code); reload(); };
-  const ROLE: Record<string, string> = { approver: "Согласующий", member: "Сотрудник", admin: "Администратор" };
+  const ROLE: Record<string, string> = { approver: "Администратор компании", member: "Сотрудник", admin: "Оператор" };
   return (
     <div className="split">
       <div className="card">
-        <h3>Пригласить сотрудника</h3>
+        <h3>Пригласить в компанию</h3>
         <div className="row">
-          <button className="primary" onClick={() => invite("approver")}>Согласующий</button>
+          <button className="primary" onClick={() => invite("approver")}>Администратор компании</button>
           <button onClick={() => invite("member")}>Сотрудник</button>
         </div>
         {code && <p>Отправьте ссылку (одноразовая):<br /><code>https://t.me/aimarketologgbot?start={code}</code></p>}
-        <p className="muted">Согласующий одобряет публикации, сотрудник только ставит задачи.</p>
+        <p className="muted">
+          Администратор компании согласует публикации в чате бота и сам приглашает сотрудников командой /invite.
+          Сотрудник ставит задачи в чате. Оператор (вы) настраивает компанию, но материалы не создаёт.
+        </p>
       </div>
       <div>
         {(members ?? []).map((m) => (

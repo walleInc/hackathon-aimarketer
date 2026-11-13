@@ -1,7 +1,9 @@
 """Telegram-бот: свободный текст → агент, согласование inline-кнопками, уведомления."""
 import logging
+import secrets
+
 from aiogram import Bot, Dispatcher, F
-from aiogram.filters import CommandStart
+from aiogram.filters import Command, CommandStart
 from aiogram.types import (
     CallbackQuery, FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup, Message, WebAppInfo,
 )
@@ -49,27 +51,57 @@ async def on_start(message: Message) -> None:
                 await message.answer("Приглашение недействительно или уже использовано.")
                 return
             user = await _get_user(session, message.from_user.id)
+            if user is not None and user.role == "admin":
+                await message.answer(
+                    "Вы оператор сервиса: настраиваете компании в кабинете, а материалы создают сотрудники компаний. "
+                    "Для работы в роли сотрудника используйте другой аккаунт Telegram.",
+                    reply_markup=_webapp_markup(),
+                )
+                return
             if user is None:
                 user = User(telegram_id=message.from_user.id)
                 session.add(user)
             user.company_id = invite.company_id
-            if user.role != "admin":  # администратор остаётся администратором, но работает в этой компании
-                user.role = invite.role
+            user.role = invite.role
             user.name = message.from_user.full_name
             invite.used = True
             await session.commit()
             await services.audit(session, invite.company_id, user.id, "user.joined", f"role={invite.role}")
             await message.answer(
                 "Готово! Вы подключены. Напишите задачу обычным текстом, например: "
-                "«Подготовь пост про нашу новую услугу».",
-                reply_markup=_webapp_markup(),
+                "«Подготовь пост про нашу новую услугу»." + _ROLE_HELP[invite.role]
             )
             return
         user = await _get_user(session, message.from_user.id)
     if user is None:
         await message.answer("Для доступа нужна ссылка-приглашение от вашего менеджера.")
+    elif user.role == "admin":
+        await message.answer("Вы оператор сервиса. Компании, знания, бренд и каналы настраиваются в кабинете.", reply_markup=_webapp_markup())
     else:
-        await message.answer("Я AI-маркетолог. Напишите задачу обычным текстом.", reply_markup=_webapp_markup())
+        await message.answer("Я AI-маркетолог. Напишите задачу обычным текстом." + _ROLE_HELP.get(user.role, ""))
+
+
+_ROLE_HELP = {
+    "approver": "\n\nВы администратор компании: материалы приходят вам на согласование. "
+                "Команда /invite — ссылка для нового сотрудника.",
+    "member": "\n\nГотовые материалы уйдут на согласование администратору компании, о решении я сообщу.",
+}
+
+
+@dp.message(Command("invite"))
+async def on_invite(message: Message) -> None:
+    """Администратор компании приглашает сотрудников без обращения к оператору."""
+    async with SessionLocal() as session:
+        user = await _get_user(session, message.from_user.id)
+        if user is None or user.role != "approver" or user.company_id is None:
+            await message.answer("Приглашать сотрудников может администратор компании.")
+            return
+        code = secrets.token_urlsafe(8)
+        session.add(Invite(code=code, company_id=user.company_id, role="member"))
+        await session.commit()
+        await services.audit(session, user.company_id, user.id, "invite.created", "member via bot")
+    me = await message.bot.me()
+    await message.answer(f"Ссылка для сотрудника (одноразовая):\nhttps://t.me/{me.username}?start={code}")
 
 
 def _approval_kb(post_id: int) -> InlineKeyboardMarkup:
@@ -89,9 +121,12 @@ async def notify_approval(post_id: int) -> None:
         post = await session.get(Post, post_id)
         approvers = (
             await session.execute(
-                select(User).where(User.company_id == post.company_id, User.role.in_(("approver", "admin")))
+                select(User).where(User.company_id == post.company_id, User.role == "approver")
             )
         ).scalars().all()
+    if not approvers:  # без администратора компании согласовать некому — сообщаем оператору
+        await notify_admins(f"В компании {post.company_id} нет администратора, материал #{post.id} ждёт согласования.")
+        return
     when = post.scheduled_at.strftime("%d.%m.%Y %H:%M UTC") if post.scheduled_at else "сразу после одобрения"
     notes = f"\n\n🔎 {post.check_notes}" if post.check_notes else ""
     text = f"📝 Материал на согласование (#{post.id}, версия {post.version})\nПлощадка: {post.platform}\nПубликация: {when}\n\n{post.text}{notes}"
@@ -103,6 +138,15 @@ async def notify_approval(post_id: int) -> None:
             await bot.send_message(user.telegram_id, text[:4000], reply_markup=_approval_kb(post.id))
         except Exception:
             log.exception("cannot notify user %s", user.telegram_id)
+
+
+async def notify_user(telegram_id: int, text: str) -> None:
+    if bot is None:
+        return
+    try:
+        await bot.send_message(telegram_id, text)
+    except Exception:
+        log.exception("cannot notify user %s", telegram_id)
 
 
 async def notify_admins(text: str) -> None:
@@ -122,16 +166,16 @@ async def on_decision(cb: CallbackQuery) -> None:
     _, post_id_s, action = cb.data.split(":")
     async with SessionLocal() as session:
         user = await _get_user(session, cb.from_user.id)
-        if user is None or user.company_id is None and user.role != "admin":
+        if user is None or user.company_id is None:
             await cb.answer("Нет доступа", show_alert=True)
+            return
+        if user.role != "approver":
+            await cb.answer("Согласовывать может только администратор компании", show_alert=True)
             return
         # изоляция: пост ищется только в компании пользователя
         post = await session.get(Post, int(post_id_s))
-        if post is None or (user.role != "admin" and post.company_id != user.company_id):
+        if post is None or post.company_id != user.company_id:
             await cb.answer("Пост не найден", show_alert=True)
-            return
-        if user.role not in ("admin", "approver"):
-            await cb.answer("Согласовывать может только ответственный", show_alert=True)
             return
         try:
             if action == "revise":
@@ -165,8 +209,11 @@ async def on_text(message: Message) -> None:
         if user is None:
             await message.answer("Для доступа нужна ссылка-приглашение от вашего менеджера.")
             return
-        if user.company_id is None:
-            await message.answer("Администратору: выберите компанию и управляйте ею в кабинете.", reply_markup=_webapp_markup())
+        if user.role == "admin" or user.company_id is None:
+            await message.answer(
+                "Вы оператор сервиса: настройка компаний — в кабинете. Материалы создают сотрудники компаний.",
+                reply_markup=_webapp_markup(),
+            )
             return
         if user.state.startswith("revise:"):  # комментарий к доработке
             post_id = int(user.state.split(":")[1])
