@@ -1,11 +1,14 @@
-"""Фоновые задачи. Всё состояние в БД, поэтому после перезапуска работа продолжается."""
+"""Планировщик. Всё состояние в БД/Redis, поэтому после перезапуска работа продолжается.
+
+С REDIS_URL тик запускает BullMQ (job scheduler, единый для всех экземпляров); без него — APScheduler в процессе.
+"""
 import logging
 from datetime import timedelta
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy import select
 
-from . import agent, services
+from . import jobs, services
 from .config import settings
 from .db import SessionLocal, utcnow
 from .models import Task
@@ -14,7 +17,7 @@ log = logging.getLogger(__name__)
 
 
 async def run_due_tasks() -> int:
-    """Запускает регулярные задачи: агент сам готовит материал и отправляет на согласование."""
+    """Находит регулярные задачи, которым пора запуститься, и ставит их в очередь ai-generation."""
     now, started = utcnow(), 0
     async with SessionLocal() as session:
         tasks = (await session.execute(select(Task).where(Task.active.is_(True)))).scalars().all()
@@ -22,22 +25,24 @@ async def run_due_tasks() -> int:
             if task.last_run and now - task.last_run < timedelta(minutes=task.interval_minutes):
                 continue
             task.last_run = now
-            await session.commit()  # отмечаем запуск ДО выполнения — защита от дублей
-            try:
-                await agent.handle_message(session, task.company_id, None, f"Регулярная задача: {task.prompt}")
-                await services.audit(session, task.company_id, None, "task.run", f"task={task.id}")
-                started += 1
-            except Exception as e:
-                log.exception("task %s failed", task.id)
-                await services.notify_admins(f"Задача {task.id} (компания {task.company_id}) завершилась ошибкой: {e}")
+            await session.commit()  # отмечаем запуск ДО постановки в очередь — защита от дублей
+            await jobs.enqueue(
+                "ai-generation", "run_task", {"task_id": task.id, "company_id": task.company_id},
+                attempts=2, backoff_ms=30_000,
+            )
+            started += 1
     return started
+
+
+async def run_tick() -> None:
+    await run_due_tasks()
+    async with SessionLocal() as session:
+        await services.publish_due(session)
 
 
 async def tick() -> None:
     try:
-        await run_due_tasks()
-        async with SessionLocal() as session:
-            await services.publish_due(session)
+        await run_tick()
     except Exception:
         log.exception("scheduler tick failed")
 

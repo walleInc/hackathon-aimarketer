@@ -10,13 +10,17 @@ os.environ.update(
     LLM_PROVIDER="stub",
     BOT_TOKEN="",
     MEDIA_DIR=f"{_tmp}/media",
+    REDIS_URL="",  # тесты: встроенный Redis и задачи в процессе
+    S3_BUCKET="",
+    S3_ACCESS_KEY_ID="",
+    S3_SECRET_ACCESS_KEY="",
 )
 
 import httpx
 import pytest
 import pytest_asyncio
 
-from app import platforms
+from app import cache, platforms
 from app.db import Base, SessionLocal, engine
 from app.main import app
 from app.models import Company, SocialAccount, User
@@ -37,6 +41,7 @@ async def env():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
+    cache.reset_client()  # новый event loop — новый клиент; пустой кэш/лимиты/блокировки
     fake = FakePlatform()
     platforms.REGISTRY["telegram"] = fake
     async with SessionLocal() as s:

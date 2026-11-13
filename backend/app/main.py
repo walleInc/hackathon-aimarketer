@@ -7,7 +7,7 @@ from aiogram.types import Update
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 
-from . import tg
+from . import cache, events, jobs, tg
 from .config import settings
 from .db import init_db
 from .routers import admin, client
@@ -54,8 +54,14 @@ async def _run_polling() -> None:
 async def lifespan(app: FastAPI):
     await init_db()
     Path(settings.media_dir).mkdir(parents=True, exist_ok=True)
-    scheduler = create_scheduler()
-    scheduler.start()
+    scheduler = None
+    if jobs.queue_mode() == "bullmq":
+        if settings.run_workers:  # очереди BullMQ: воркеры и периодические задачи
+            await jobs.start_workers()
+    else:  # без Redis: планировщик в процессе, задачи выполняются сразу
+        scheduler = create_scheduler()
+        scheduler.start()
+    pubsub = asyncio.create_task(events.listen())  # события между экземплярами приложения
     background: asyncio.Task | None = None
     if tg.bot:
         if settings.public_url and settings.bot_mode == "webhook":
@@ -64,7 +70,11 @@ async def lifespan(app: FastAPI):
         else:  # локальная разработка или сервер, недоступный для webhook
             background = asyncio.create_task(_run_polling())
     yield
-    scheduler.shutdown(wait=False)
+    if scheduler:
+        scheduler.shutdown(wait=False)
+    pubsub.cancel()
+    await jobs.stop_workers()
+    await cache.close()
     if background:
         background.cancel()
     if tg.bot:

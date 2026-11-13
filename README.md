@@ -28,6 +28,11 @@ Mini App: `cd frontend && npm install && npm run dev` (для входа в бр
 задайте `VITE_DEV_USER=<id>` и `DEV_AUTH_BYPASS=true` в backend/.env — только для разработки).
 Для работы внутри Telegram нужен публичный HTTPS-адрес (cloudflared/ngrok или деплой) → `PUBLIC_URL`.
 
+Для очередей и кэша нужен Redis: `REDIS_URL=redis://localhost:6379/0` (например, `docker compose up -d redis`).
+Без него всё работает в одном процессе, без повторов и отложенного запуска. Файлы контекста организаций
+хранятся в Yandex Object Storage — задайте `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`
+(ключи только в `.env`, в репозиторий они не попадают).
+
 ## Тесты
 
 ```bash
@@ -53,5 +58,6 @@ cd backend && .venv\Scripts\python -m pytest
 
 - Подключение через аккаунт ChatGPT (`llm/chatgpt_account.py` — заготовка, критерий №12 требует проверки).
 - Адаптеры VK и MAX, сбор статистики соцсетей, мониторинг комментариев, анализ конкурентов.
-- Загрузка файлов/парсинг сайта в базу знаний (сейчас — текст через интерфейс).
+- Парсинг сайтов в базу знаний (файлы TXT/MD/CSV/JSON/PDF/DOCX загружаются в Yandex S3).
+- Источник для очереди `moderation` (мониторинг комментариев); обработчик готов.
 - Миграции БД (Alembic): таблицы создаются при старте.

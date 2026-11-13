@@ -6,7 +6,7 @@ from PIL import Image
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from . import branding, limits, platforms, services
+from . import branding, cache, context_files, limits, platforms, services
 from .config import settings
 from .llm import get_llm
 from .media import media_path
@@ -48,16 +48,24 @@ class AgentResult:
     post_id: int | None = None
 
 
-async def _system_prompt(session: AsyncSession, company_id: int, json_mode: bool = True) -> str:
+async def _build_prompt(session: AsyncSession, company_id: int) -> str:
     company = await session.get(Company, company_id)
     docs = (
         await session.execute(select(KnowledgeDoc).where(KnowledgeDoc.company_id == company_id))
     ).scalars().all()
-    knowledge = "\n\n".join(f"## {d.title}\n{d.content}" for d in docs)[:KNOWLEDGE_LIMIT] or "(пока пусто)"
-    prompt = SYSTEM.format(
+    knowledge = "\n\n".join(f"## {d.title}\n{d.content}" for d in docs)[:KNOWLEDGE_LIMIT]
+    files = await context_files.load_context(company_id)  # файлы организации из Yandex S3: {organization_id}/{файл}
+    if files:
+        knowledge = f"{knowledge}\n\n{files}" if knowledge else files
+    return SYSTEM.format(
         name=company.name, description=company.description or "—", style=company.brand_style or "—",
-        rules=company.brand_rules or "—", knowledge=knowledge,
+        rules=company.brand_rules or "—", knowledge=knowledge or "(пока пусто)",
     )
+
+
+async def _system_prompt(session: AsyncSession, company_id: int, json_mode: bool = True) -> str:
+    """Профиль бизнеса, база знаний и файлы организации — в кэше Redis; сбрасывается при любом изменении контекста."""
+    prompt = await cache.cached(f"ctx:prompt:{company_id}", lambda: _build_prompt(session, company_id))
     return prompt + JSON_RULES if json_mode else prompt
 
 
@@ -137,6 +145,13 @@ async def handle_message(session: AsyncSession, company_id: int, user: User | No
         if await limits.first_budget_alert(session, company_id):
             await services.audit(session, company_id, None, "limit.tokens", str(e))
             await services.notify_admins(f"Компания «{company.name}»: {e}")
+        return AgentResult(reply=str(e))
+
+    try:  # защита расходов на LLM: лимит запросов к AI на организацию и на пользователя
+        await cache.rate_limit(f"ai:org:{company_id}", settings.ai_rate_limit_per_min)
+        if user is not None:
+            await cache.rate_limit(f"ai:user:{user.id}", settings.ai_rate_limit_per_user_per_min)
+    except cache.RateLimited as e:
         return AgentResult(reply=str(e))
 
     session.add(Message(company_id=company_id, role="user", content=text))

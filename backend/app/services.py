@@ -4,7 +4,7 @@ import logging
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from . import platforms
+from . import cache, events, jobs, platforms
 from .db import utcnow
 from .models import Approval, AuditLog, Post, SocialAccount, User
 from .workflow import InvalidTransition, PostStatus, check_transition
@@ -33,27 +33,19 @@ async def get_post(session: AsyncSession, company_id: int, post_id: int) -> Post
 
 
 async def _notify_approval(post_id: int) -> None:
-    try:
-        from .tg import notify_approval
-
-        await notify_approval(post_id)
-    except Exception:  # недоступность Telegram не должна ломать бизнес-логику
-        log.exception("notify_approval failed")
+    # через очередь notifications: недоступность Telegram не ломает бизнес-логику и не теряет уведомление
+    await jobs.enqueue("notifications", "approval", {"post_id": post_id}, attempts=5)
 
 
 async def notify_admins(text: str) -> None:
-    try:
-        from .tg import notify_admins as _n
-
-        await _n(text)
-    except Exception:
-        log.exception("notify_admins failed")
+    await jobs.enqueue("notifications", "admins", {"text": text}, attempts=5)
 
 
 async def _set_status(session: AsyncSession, post: Post, new: PostStatus) -> None:
     check_transition(post.status, new)
     post.status = new.value
     await session.commit()
+    await events.publish("post.status", post_id=post.id, company_id=post.company_id, status=new.value)
 
 
 async def submit_for_approval(session: AsyncSession, post: Post) -> Post:
@@ -80,6 +72,11 @@ async def decide(session: AsyncSession, post: Post, user: User, decision: str, c
     if target is S.APPROVED and (post.scheduled_at is None or post.scheduled_at <= utcnow()):
         await publish_post(session, post.id)
         await session.refresh(post)
+        if post.status == S.FAILED.value:  # публикация не удалась: повторим позже (площадка могла быть недоступна)
+            await jobs.enqueue("publishing", "publish", {"post_id": post.id}, delay_ms=60_000, attempts=4, backoff_ms=60_000)
+    elif target is S.APPROVED:  # отложенная публикация: задача сработает ровно в назначенное время
+        delay = int((post.scheduled_at - utcnow()).total_seconds() * 1000)
+        await jobs.enqueue("publishing", "publish", {"post_id": post.id}, delay_ms=delay, attempts=4, backoff_ms=60_000)
     return post
 
 
@@ -103,8 +100,16 @@ async def edit_post_text(session: AsyncSession, post: Post, text: str, user_id: 
     return post
 
 
-async def publish_post(session: AsyncSession, post_id: int) -> Post | None:
-    """Публикует пост. Работает только из approved; атомарный захват защищает от дублей."""
+async def publish_post(session: AsyncSession, post_id: int, notify: bool = True) -> Post | None:
+    """Публикует пост. Работает только из approved; блокировка в Redis и атомарный захват защищают от дублей."""
+    try:
+        async with cache.lock(f"publish:{post_id}", ttl_sec=300):
+            return await _publish_post(session, post_id, notify)
+    except cache.LockBusy:
+        return None  # этот пост уже публикует другой воркер
+
+
+async def _publish_post(session: AsyncSession, post_id: int, notify: bool) -> Post | None:
     claimed = await session.execute(
         update(Post).where(Post.id == post_id, Post.status == S.APPROVED.value).values(status=S.PUBLISHING.value)
     )
@@ -134,7 +139,8 @@ async def publish_post(session: AsyncSession, post_id: int) -> Post | None:
         post.status, post.error = S.FAILED.value, str(e)
         await session.commit()
         await audit(session, post.company_id, None, "post.failed", f"post={post.id} {e}")
-        await notify_admins(f"Ошибка публикации поста {post.id} (компания {post.company_id}): {e}")
+        if notify:
+            await notify_admins(f"Ошибка публикации поста {post.id} (компания {post.company_id}): {e}")
     return post
 
 
@@ -147,6 +153,6 @@ async def publish_due(session: AsyncSession) -> int:
             )
         )
     ).scalars().all()
-    for pid in ids:
-        await publish_post(session, pid)
+    for pid in ids:  # публикацию выполняют воркеры очереди publishing; dedup — чтобы тик не плодил дубли
+        await jobs.enqueue("publishing", "publish", {"post_id": pid}, attempts=4, backoff_ms=60_000, dedup_id=f"publish-{pid}")
     return len(ids)

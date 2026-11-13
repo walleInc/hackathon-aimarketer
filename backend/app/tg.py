@@ -7,7 +7,7 @@ from aiogram.types import (
 )
 from sqlalchemy import select
 
-from . import agent, limits, services
+from . import agent, cache, limits, services
 from .config import settings
 from .db import SessionLocal
 from .media import media_path
@@ -141,8 +141,7 @@ async def on_decision(cb: CallbackQuery) -> None:
                     await cb.answer(str(e), show_alert=True)
                     return
                 await services.decide(session, post, user, "revise")
-                user.state = f"revise:{post.id}"
-                await session.commit()
+                await cache.set_state(user.id, f"revise:{post.id}")  # временное состояние диалога — в Redis с TTL
                 await cb.message.answer(f"Что изменить в посте #{post.id}? Ответьте одним сообщением.")
             else:
                 post = await services.decide(session, post, user, action)
@@ -168,17 +167,16 @@ async def on_text(message: Message) -> None:
         if user.company_id is None:
             await message.answer("Администратору: выберите компанию и управляйте ею в кабинете.", reply_markup=_webapp_markup())
             return
-        if user.state.startswith("revise:"):  # комментарий к доработке
-            post_id = int(user.state.split(":")[1])
-            user.state = ""
-            await session.commit()
+        state = await cache.get_state(user.id)
+        if state.startswith("revise:"):  # комментарий к доработке
+            post_id = int(state.split(":")[1])
+            await cache.clear_state(user.id)
             post = await session.get(Post, post_id)
             if post and post.company_id == user.company_id:
                 try:
                     await agent.revise_post(session, post, message.text, user.id)
                 except limits.LimitExceeded as e:
-                    user.state = f"revise:{post_id}"  # можно повторить комментарий позже
-                    await session.commit()
+                    await cache.set_state(user.id, f"revise:{post_id}")  # можно повторить комментарий позже
                     await message.answer(str(e))
                     return
                 await message.answer("Доработал и отправил на повторное согласование.")
