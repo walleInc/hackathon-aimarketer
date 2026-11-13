@@ -4,7 +4,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from PIL import Image
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -231,6 +231,62 @@ async def revoke_social(account_id: int, ctx: Ctx = Depends(require_admin), sess
     acc.active, acc.token_encrypted = False, ""
     await session.commit()
     await services.audit(session, acc.company_id, ctx.user.id, "social.revoked", str(acc.id))
+    return {"ok": True}
+
+
+class OperatorIn(BaseModel):
+    telegram_id: int = Field(gt=0)
+    name: str = ""
+
+
+def _operator_out(telegram_id: int, name: str, company_id: int | None, me_id: int) -> dict:
+    return {
+        "telegram_id": telegram_id, "name": name, "company_id": company_id,
+        # env — задан в ADMIN_IDS на сервере (постоянный оператор), db — управляется отсюда
+        "source": "env" if telegram_id in settings.admin_id_set else "db",
+        "you": telegram_id == me_id,
+    }
+
+
+@router.get("/operators")
+async def list_operators(ctx: Ctx = Depends(require_admin), session: AsyncSession = Depends(get_session)):
+    rows = (await session.execute(select(User).where(User.role == "admin").order_by(User.id))).scalars().all()
+    out = [_operator_out(u.telegram_id, u.name, u.company_id, ctx.user.telegram_id) for u in rows]
+    known = {o["telegram_id"] for o in out}
+    # операторы из ADMIN_IDS, которые ещё не писали боту
+    out += [_operator_out(t, "", None, ctx.user.telegram_id) for t in sorted(settings.admin_id_set - known)]
+    return out
+
+
+@router.post("/operators")
+async def add_operator(body: OperatorIn, ctx: Ctx = Depends(require_admin), session: AsyncSession = Depends(get_session)):
+    user = (await session.execute(select(User).where(User.telegram_id == body.telegram_id))).scalar_one_or_none()
+    if user is None:
+        user = User(telegram_id=body.telegram_id, name=body.name, role="admin")
+        session.add(user)
+    else:
+        user.role = "admin"
+        user.name = body.name or user.name
+    await session.commit()
+    await services.audit(session, None, ctx.user.id, "operator.added", str(body.telegram_id))
+    return {"ok": True}
+
+
+@router.delete("/operators/{telegram_id}")
+async def remove_operator(telegram_id: int, ctx: Ctx = Depends(require_admin), session: AsyncSession = Depends(get_session)):
+    if telegram_id in settings.admin_id_set:
+        raise HTTPException(409, "Оператор задан в настройках сервера (ADMIN_IDS): уберите его оттуда")
+    if telegram_id == ctx.user.telegram_id:
+        raise HTTPException(409, "Нельзя убрать самого себя")
+    user = (await session.execute(select(User).where(User.telegram_id == telegram_id, User.role == "admin"))).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(404, "Оператор не найден")
+    if user.company_id:  # бывший оператор остаётся сотрудником своей компании, но без прав администратора
+        user.role = "member"
+    else:
+        await session.delete(user)
+    await session.commit()
+    await services.audit(session, None, ctx.user.id, "operator.removed", str(telegram_id))
     return {"ok": True}
 
 

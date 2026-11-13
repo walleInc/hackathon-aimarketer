@@ -30,6 +30,7 @@ export const ACTION_RU: Record<string, string> = {
   "post.edited": "Текст поста изменён", "post.published": "Пост опубликован", "post.failed": "Ошибка публикации",
   "social.connected": "Подключён канал", "social.revoked": "Доступ к каналу отозван", "user.joined": "Сотрудник подключился",
   "task.created": "Создана задача", "task.run": "Задача выполнена", "task.toggled": "Задача включена/выключена",
+  "operator.added": "Добавлен оператор", "operator.removed": "Оператор удалён",
   "knowledge.deleted": "Удалён документ знаний", "knowledge.updated": "Обновлён документ знаний",
   "company.updated": "Изменены настройки компании", "brand.asset_added": "Добавлен файл бренд-кита",
   "brand.asset_deleted": "Удалён файл бренд-кита", "limit.tokens": "Исчерпан месячный бюджет AI",

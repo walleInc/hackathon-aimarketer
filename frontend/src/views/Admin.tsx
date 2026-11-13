@@ -13,16 +13,75 @@ function useLoad<T>(fn: () => Promise<T>, deps: unknown[]): [T | null, () => voi
 
 export function Admin() {
   const [openId, setOpenId] = useState<number | null>(null);
+  const [page, setPage] = useState<"main" | "ops">("main");
+  const home = () => { setOpenId(null); setPage("main"); };
   return (
     <div className="app wide">
       <header className="top">
-        <div className="brand" onClick={() => setOpenId(null)} style={{ cursor: "pointer" }}>
+        <div className="brand" onClick={home} style={{ cursor: "pointer" }}>
           <span className="logo">AI</span> маркетолог <span className="badge">админ</span>
         </div>
-        <span className="muted">Панель оператора</span>
+        <button className="topLink" onClick={() => { setOpenId(null); setPage(page === "ops" ? "main" : "ops"); }}>
+          {page === "ops" ? "Компании" : "Операторы"}
+        </button>
       </header>
-      {openId === null ? <Dashboard open={setOpenId} /> : <CompanyPage id={openId} back={() => setOpenId(null)} />}
+      {page === "ops" ? <Operators />
+        : openId === null ? <Dashboard open={setOpenId} /> : <CompanyPage id={openId} back={() => setOpenId(null)} />}
     </div>
+  );
+}
+
+/* ---------------- Операторы ---------------- */
+
+function Operators() {
+  const [ops, reload, loadError] = useLoad(() => api.operators(), []);
+  const [tgId, setTgId] = useState("");
+  const [name, setName] = useState("");
+  const [msg, setMsg] = useState("");
+  const idOk = /^\d{5,15}$/.test(tgId.trim());
+
+  const add = async () => {
+    try { await api.addOperator(Number(tgId.trim()), name.trim()); setTgId(""); setName(""); setMsg("Оператор добавлен"); reload(); }
+    catch (e) { setMsg((e as Error).message); }
+  };
+  const remove = async (id: number) => {
+    if (!confirm("Убрать оператора? Он потеряет доступ к админке.")) return;
+    try { await api.removeOperator(id); setMsg("Оператор удалён"); reload(); } catch (e) { setMsg((e as Error).message); }
+  };
+
+  return (
+    <>
+      <h1>Операторы</h1>
+      {loadError && <div className="card error">{loadError}</div>}
+      <div className="split">
+        <div className="card">
+          <h3>Добавить оператора</h3>
+          <label>Telegram ID<input inputMode="numeric" placeholder="например, 123456789" value={tgId} onChange={(e) => setTgId(e.target.value)} /></label>
+          <label>Имя (для списка)<input value={name} onChange={(e) => setName(e.target.value)} /></label>
+          <button className="primary" disabled={!idOk} onClick={add}>Добавить</button>
+          {msg && <p className="muted">{msg}</p>}
+          <p className="muted">
+            ID можно узнать у бота @userinfobot. Оператор получит полный доступ ко всем компаниям. Чтобы бот мог присылать ему
+            уведомления об ошибках, ему нужно один раз написать боту /start.
+          </p>
+        </div>
+        <div>
+          {(ops ?? []).map((o) => (
+            <div className="card" key={o.telegram_id}>
+              <div className="cardHead">
+                <b>{o.name || `ID ${o.telegram_id}`}{o.you ? " (вы)" : ""}</b>
+                <span className="badge">{o.source === "env" ? "из настроек сервера" : "добавлен в кабинете"}</span>
+              </div>
+              <span className="muted">Telegram ID {o.telegram_id}</span>
+              {o.source === "db" && !o.you && (
+                <div className="row"><button className="ghost" onClick={() => remove(o.telegram_id)}>Убрать</button></div>
+              )}
+              {o.source === "env" && <p className="muted">Постоянный оператор: убирается только в ADMIN_IDS на сервере.</p>}
+            </div>
+          ))}
+        </div>
+      </div>
+    </>
   );
 }
 

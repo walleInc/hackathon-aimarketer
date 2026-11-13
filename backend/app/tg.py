@@ -108,7 +108,9 @@ async def notify_approval(post_id: int) -> None:
 async def notify_admins(text: str) -> None:
     if bot is None:
         return
-    for admin_id in settings.admin_id_set:
+    async with SessionLocal() as session:  # операторы из ADMIN_IDS и добавленные через админку
+        db_ids = set((await session.execute(select(User.telegram_id).where(User.role == "admin"))).scalars())
+    for admin_id in settings.admin_id_set | db_ids:
         try:
             await bot.send_message(admin_id, f"⚠️ {text}")
         except Exception:
