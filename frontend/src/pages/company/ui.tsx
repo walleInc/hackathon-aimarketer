@@ -51,7 +51,7 @@ export function CompanyPage({
       )}
       <h1>{company?.name ?? '…'}</h1>
       <Tabs value={tab} onValueChange={(value) => setTab(value as TabName)}>
-        <TabsList className="flex h-auto w-full justify-start overflow-x-auto">
+        <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1">
           {TABS.map((t) => (
             <TabsTrigger key={t} value={t}>
               {t}
