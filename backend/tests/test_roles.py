@@ -79,3 +79,29 @@ async def test_schedule_task_from_chat(client, monkeypatch):
     await client.post("/api/agent/message", headers=COMPANY_ADMIN, json={"text": "Готовь материал каждый день"})
     tasks = (await client.get("/api/tasks", headers=COMPANY_ADMIN)).json()
     assert tasks and tasks[0]["interval_minutes"] == 1440
+
+
+async def test_company_admin_configures_only_own_company(client, env):
+    a, b = env["a"], env["b"]
+    # свои знания и бренд — можно
+    r = await client.post(f"/api/admin/companies/{a}/knowledge", headers=COMPANY_ADMIN, json={"title": "t", "content": "c"})
+    assert r.status_code == 200
+    doc_id = r.json()["id"]
+    assert (await client.put(f"/api/admin/knowledge/{doc_id}", headers=COMPANY_ADMIN, json={"title": "t2", "content": "c2"})).status_code == 200
+    assert (await client.put(f"/api/admin/companies/{a}", headers=COMPANY_ADMIN, json={"description": "новое"})).status_code == 200
+    # чужая компания — нельзя ни по пути, ни по id сущности
+    assert (await client.get(f"/api/admin/companies/{b}/knowledge", headers=COMPANY_ADMIN)).status_code == 403
+    assert (await client.post(f"/api/admin/companies/{b}/invite", headers=COMPANY_ADMIN, json={"role": "member"})).status_code == 403
+    other = (await client.post(f"/api/admin/companies/{b}/knowledge", headers=as_user(1), json={"title": "x", "content": "y"})).json()["id"]
+    assert (await client.delete(f"/api/admin/knowledge/{other}", headers=COMPANY_ADMIN)).status_code == 404
+    # видит только свою компанию; создавать компании и менять лимиты расходов нельзя
+    ids = [c["id"] for c in (await client.get("/api/admin/companies", headers=COMPANY_ADMIN)).json()]
+    assert ids == [a]
+    assert [s["id"] for s in (await client.get("/api/admin/stats", headers=COMPANY_ADMIN)).json()] == [a]
+    assert (await client.post("/api/admin/companies", headers=COMPANY_ADMIN, json={"name": "Новая"})).status_code == 403
+    assert (await client.put(f"/api/admin/companies/{a}", headers=COMPANY_ADMIN, json={"monthly_token_limit": 99999999})).status_code == 403
+
+
+async def test_employee_has_no_cabinet(client, env):
+    assert (await client.get("/api/admin/companies", headers=EMPLOYEE)).status_code == 403
+    assert (await client.get(f"/api/admin/companies/{env['a']}/knowledge", headers=EMPLOYEE)).status_code == 403

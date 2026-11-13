@@ -19,7 +19,7 @@ async def test_knowledge_can_be_edited(client, env):
     assert r.status_code == 200
     docs = (await client.get(f"/api/admin/companies/{env['a']}/knowledge", headers=ADMIN)).json()
     assert docs[0]["title"] == "Новое" and docs[0]["content"] == "v2" and docs[0]["updated_at"]
-    assert (await client.put(f"/api/admin/knowledge/{doc_id}", headers=as_user(100), json={"title": "x", "content": "y"})).status_code == 403
+    assert (await client.put(f"/api/admin/knowledge/{doc_id}", headers=as_user(101), json={"title": "x", "content": "y"})).status_code == 403
 
 
 async def test_daily_post_limit_blocks_new_posts(client, env):
@@ -90,7 +90,7 @@ async def test_asset_upload_validation(client, env):
     bad_ext = await client.post(url, headers=ADMIN, data={"kind": "logo_color"}, files={"file": ("logo.exe", b"MZ", "application/octet-stream")})
     fake_img = await client.post(url, headers=ADMIN, data={"kind": "logo_color"}, files={"file": ("logo.png", b"not an image", "image/png")})
     bad_kind = await client.post(url, headers=ADMIN, data={"kind": "script"}, files={"file": ("a.png", buf.getvalue(), "image/png")})
-    forbidden = await client.post(url, headers=as_user(100), data={"kind": "logo_color"}, files={"file": ("logo.png", buf.getvalue(), "image/png")})
+    forbidden = await client.post(url, headers=as_user(101), data={"kind": "logo_color"}, files={"file": ("logo.png", buf.getvalue(), "image/png")})
     assert (bad_ext.status_code, fake_img.status_code, bad_kind.status_code, forbidden.status_code) == (422, 422, 422, 403)
 
 

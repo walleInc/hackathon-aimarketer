@@ -22,7 +22,6 @@ export type Doc = { id: number; title: string; content: string; size: number; up
 export type Social = { id: number; platform: string; channel_id: string; active: boolean };
 export type Member = { id: number; telegram_id: number; name: string; role: string };
 export type TaskItem = { id: number; prompt: string; interval_minutes: number; active: boolean; last_run: string | null };
-export type Operator = { telegram_id: number; name: string; company_id: number | null; source: "env" | "db"; you: boolean };
 export type AuditItem = { id: number; company_id: number | null; action: string; details: string; created_at: string };
 
 // Админ выбирает компанию, с которой работает; клиент всегда привязан к своей на сервере
@@ -89,8 +88,5 @@ export const api = {
   toggleTask: (taskId: number, active: boolean) => req("PATCH", `${A}/tasks/${taskId}`, { active }),
   createTask: (id: number, prompt: string, interval_minutes: number) =>
     req("POST", "/api/tasks", { prompt, interval_minutes }, { "X-Company-Id": String(id) }),
-  operators: () => req<Operator[]>("GET", `${A}/operators`),
-  addOperator: (telegram_id: number, name: string) => req("POST", `${A}/operators`, { telegram_id, name }),
-  removeOperator: (telegram_id: number) => req("DELETE", `${A}/operators/${telegram_id}`),
   audit: (id?: number) => req<AuditItem[]>("GET", `${A}/audit${id ? `?company_id=${id}` : ""}`),
 };

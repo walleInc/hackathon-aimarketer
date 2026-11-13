@@ -53,8 +53,8 @@ async def on_start(message: Message) -> None:
             user = await _get_user(session, message.from_user.id)
             if user is not None and user.role == "admin":
                 await message.answer(
-                    "Вы оператор сервиса: настраиваете компании в кабинете, а материалы создают сотрудники компаний. "
-                    "Для работы в роли сотрудника используйте другой аккаунт Telegram.",
+                    "Это технический аккаунт поставщика услуги: он создаёт компании и не создаёт материалы. "
+                    "Для работы в компании используйте другой аккаунт Telegram.",
                     reply_markup=_webapp_markup(),
                 )
                 return
@@ -69,21 +69,25 @@ async def on_start(message: Message) -> None:
             await services.audit(session, invite.company_id, user.id, "user.joined", f"role={invite.role}")
             await message.answer(
                 "Готово! Вы подключены. Напишите задачу обычным текстом, например: "
-                "«Подготовь пост про нашу новую услугу»." + _ROLE_HELP[invite.role]
+                "«Подготовь пост про нашу новую услугу»." + _ROLE_HELP[invite.role],
+                reply_markup=_webapp_markup() if invite.role == "approver" else None,
             )
             return
         user = await _get_user(session, message.from_user.id)
     if user is None:
         await message.answer("Для доступа нужна ссылка-приглашение от вашего менеджера.")
     elif user.role == "admin":
-        await message.answer("Вы оператор сервиса. Компании, знания, бренд и каналы настраиваются в кабинете.", reply_markup=_webapp_markup())
+        await message.answer("Технический аккаунт поставщика услуги. Компании настраиваются в кабинете.", reply_markup=_webapp_markup())
     else:
-        await message.answer("Я AI-маркетолог. Напишите задачу обычным текстом." + _ROLE_HELP.get(user.role, ""))
+        await message.answer(
+            "Я AI-маркетолог. Напишите задачу обычным текстом." + _ROLE_HELP.get(user.role, ""),
+            reply_markup=_webapp_markup() if user.role == "approver" else None,
+        )
 
 
 _ROLE_HELP = {
-    "approver": "\n\nВы администратор компании: материалы приходят вам на согласование. "
-                "Команда /invite — ссылка для нового сотрудника.",
+    "approver": "\n\nВы администратор компании: материалы приходят вам на согласование, знания, бренд и каналы "
+                "настраиваются в кабинете (кнопка ниже). Команда /invite — ссылка для нового сотрудника.",
     "member": "\n\nГотовые материалы уйдут на согласование администратору компании, о решении я сообщу.",
 }
 
@@ -124,7 +128,7 @@ async def notify_approval(post_id: int) -> None:
                 select(User).where(User.company_id == post.company_id, User.role == "approver")
             )
         ).scalars().all()
-    if not approvers:  # без администратора компании согласовать некому — сообщаем оператору
+    if not approvers:  # без администратора компании согласовать некому — сообщаем поставщику услуги
         await notify_admins(f"В компании {post.company_id} нет администратора, материал #{post.id} ждёт согласования.")
         return
     when = post.scheduled_at.strftime("%d.%m.%Y %H:%M UTC") if post.scheduled_at else "сразу после одобрения"
@@ -211,7 +215,7 @@ async def on_text(message: Message) -> None:
             return
         if user.role == "admin" or user.company_id is None:
             await message.answer(
-                "Вы оператор сервиса: настройка компаний — в кабинете. Материалы создают сотрудники компаний.",
+                "Это технический аккаунт: компании настраиваются в кабинете. Материалы создают сотрудники компаний.",
                 reply_markup=_webapp_markup(),
             )
             return

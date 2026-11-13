@@ -11,77 +11,20 @@ function useLoad<T>(fn: () => Promise<T>, deps: unknown[]): [T | null, () => voi
   return [data, load, error];
 }
 
-export function Admin() {
-  const [openId, setOpenId] = useState<number | null>(null);
-  const [page, setPage] = useState<"main" | "ops">("main");
-  const home = () => { setOpenId(null); setPage("main"); };
+/** Технический администратор (companyId не задан) видит все компании; администратор компании — только свою. */
+export function Admin({ companyId, ownerView }: { companyId?: number; ownerView: boolean }) {
+  const [openId, setOpenId] = useState<number | null>(companyId ?? null);
   return (
     <div className="app wide">
       <header className="top">
-        <div className="brand" onClick={home} style={{ cursor: "pointer" }}>
-          <span className="logo">AI</span> маркетолог <span className="badge">админ</span>
+        <div className="brand" onClick={() => !companyId && setOpenId(null)} style={{ cursor: companyId ? "default" : "pointer" }}>
+          <span className="logo">AI</span> маркетолог <span className="badge">{companyId ? "кабинет компании" : "админ"}</span>
         </div>
-        <button className="topLink" onClick={() => { setOpenId(null); setPage(page === "ops" ? "main" : "ops"); }}>
-          {page === "ops" ? "Компании" : "Операторы"}
-        </button>
       </header>
-      {page === "ops" ? <Operators />
-        : openId === null ? <Dashboard open={setOpenId} /> : <CompanyPage id={openId} back={() => setOpenId(null)} />}
+      {openId === null
+        ? <Dashboard open={setOpenId} />
+        : <CompanyPage id={openId} limitsEditable={ownerView} back={companyId ? undefined : () => setOpenId(null)} />}
     </div>
-  );
-}
-
-/* ---------------- Операторы ---------------- */
-
-function Operators() {
-  const [ops, reload, loadError] = useLoad(() => api.operators(), []);
-  const [tgId, setTgId] = useState("");
-  const [name, setName] = useState("");
-  const [msg, setMsg] = useState("");
-  const idOk = /^\d{5,15}$/.test(tgId.trim());
-
-  const add = async () => {
-    try { await api.addOperator(Number(tgId.trim()), name.trim()); setTgId(""); setName(""); setMsg("Оператор добавлен"); reload(); }
-    catch (e) { setMsg((e as Error).message); }
-  };
-  const remove = async (id: number) => {
-    if (!confirm("Убрать оператора? Он потеряет доступ к админке.")) return;
-    try { await api.removeOperator(id); setMsg("Оператор удалён"); reload(); } catch (e) { setMsg((e as Error).message); }
-  };
-
-  return (
-    <>
-      <h1>Операторы</h1>
-      {loadError && <div className="card error">{loadError}</div>}
-      <div className="split">
-        <div className="card">
-          <h3>Добавить оператора</h3>
-          <label>Telegram ID<input inputMode="numeric" placeholder="например, 123456789" value={tgId} onChange={(e) => setTgId(e.target.value)} /></label>
-          <label>Имя (для списка)<input value={name} onChange={(e) => setName(e.target.value)} /></label>
-          <button className="primary" disabled={!idOk} onClick={add}>Добавить</button>
-          {msg && <p className="muted">{msg}</p>}
-          <p className="muted">
-            ID можно узнать у бота @userinfobot. Оператор получит полный доступ ко всем компаниям. Чтобы бот мог присылать ему
-            уведомления об ошибках, ему нужно один раз написать боту /start.
-          </p>
-        </div>
-        <div>
-          {(ops ?? []).map((o) => (
-            <div className="card" key={o.telegram_id}>
-              <div className="cardHead">
-                <b>{o.name || `ID ${o.telegram_id}`}{o.you ? " (вы)" : ""}</b>
-                <span className="badge">{o.source === "env" ? "из настроек сервера" : "добавлен в кабинете"}</span>
-              </div>
-              <span className="muted">Telegram ID {o.telegram_id}</span>
-              {o.source === "db" && !o.you && (
-                <div className="row"><button className="ghost" onClick={() => remove(o.telegram_id)}>Убрать</button></div>
-              )}
-              {o.source === "env" && <p className="muted">Постоянный оператор: убирается только в ADMIN_IDS на сервере.</p>}
-            </div>
-          ))}
-        </div>
-      </div>
-    </>
   );
 }
 
@@ -180,19 +123,19 @@ function NewCompany({ done }: { done: (id: number) => void }) {
 const TABS = ["Обзор", "Знания", "Бренд", "Каналы", "Команда", "Задачи", "Посты", "Журнал"] as const;
 type TabName = (typeof TABS)[number];
 
-function CompanyPage({ id, back }: { id: number; back: () => void }) {
+function CompanyPage({ id, back, limitsEditable }: { id: number; back?: () => void; limitsEditable: boolean }) {
   const [tab, setTab] = useState<TabName>("Обзор");
   const [companies] = useLoad(() => api.companies(), [id]);
   const company = companies?.find((c) => c.id === id);
 
   return (
     <>
-      <div className="crumbs"><a onClick={back}>← Все компании</a></div>
+      {back && <div className="crumbs"><a onClick={back}>← Все компании</a></div>}
       <h1>{company?.name ?? "…"}</h1>
       <nav className="tabs scroll">
         {TABS.map((t) => <button key={t} className={tab === t ? "on" : ""} onClick={() => setTab(t)}>{t}</button>)}
       </nav>
-      {company && tab === "Обзор" && <Overview company={company} go={setTab} />}
+      {company && tab === "Обзор" && <Overview company={company} go={setTab} limitsEditable={limitsEditable} />}
       {tab === "Знания" && <Knowledge id={id} />}
       {company && tab === "Бренд" && <BrandKit company={company} />}
       {tab === "Каналы" && <Channels id={id} />}
@@ -204,7 +147,7 @@ function CompanyPage({ id, back }: { id: number; back: () => void }) {
   );
 }
 
-function Overview({ company, go }: { company: Company; go: (t: TabName) => void }) {
+function Overview({ company, go, limitsEditable }: { company: Company; go: (t: TabName) => void; limitsEditable: boolean }) {
   const [f, setF] = useState({
     name: company.name, description: company.description, brand_style: company.brand_style,
     daily_post_limit: company.daily_post_limit, monthly_token_limit: company.monthly_token_limit,
@@ -219,7 +162,11 @@ function Overview({ company, go }: { company: Company; go: (t: TabName) => void 
     ["Есть администратор компании (согласующий)", (members ?? []).some((m) => m.role === "approver"), "Команда"],
   ];
   const save = async () => {
-    try { await api.updateCompany(company.id, f); setMsg("Сохранено"); } catch (e) { setMsg((e as Error).message); }
+    try {
+      const { daily_post_limit, monthly_token_limit, ...profile } = f;
+      await api.updateCompany(company.id, limitsEditable ? f : profile);
+      setMsg("Сохранено");
+    } catch (e) { setMsg((e as Error).message); }
   };
   return (
     <div className="split">
@@ -230,8 +177,8 @@ function Overview({ company, go }: { company: Company; go: (t: TabName) => void 
         <label>Тон и стиль общения<textarea rows={3} value={f.brand_style} onChange={(e) => setF({ ...f, brand_style: e.target.value })} /></label>
         <h3 style={{ marginTop: 16 }}>Лимиты</h3>
         <div className="row2">
-          <label>Материалов в сутки<input type="number" min={1} value={f.daily_post_limit} onChange={(e) => setF({ ...f, daily_post_limit: Number(e.target.value) })} /></label>
-          <label>Токенов AI в месяц<input type="number" min={1000} step={10000} value={f.monthly_token_limit} onChange={(e) => setF({ ...f, monthly_token_limit: Number(e.target.value) })} /></label>
+          <label>Материалов в сутки<input type="number" min={1} disabled={!limitsEditable} value={f.daily_post_limit} onChange={(e) => setF({ ...f, daily_post_limit: Number(e.target.value) })} /></label>
+          <label>Токенов AI в месяц<input type="number" min={1000} step={10000} disabled={!limitsEditable} value={f.monthly_token_limit} onChange={(e) => setF({ ...f, monthly_token_limit: Number(e.target.value) })} /></label>
         </div>
         <p className="muted">При превышении агент останавливается и уведомляет администратора — расходы не выходят за рамки.</p>
         <div className="row"><button className="primary" onClick={save}>Сохранить</button><span className="muted">{msg}</span></div>
@@ -414,7 +361,7 @@ function Team({ id }: { id: number }) {
   const [members, reload] = useLoad(() => api.members(id), [id]);
   const [code, setCode] = useState("");
   const invite = async (role: string) => { setCode((await api.invite(id, role)).code); reload(); };
-  const ROLE: Record<string, string> = { approver: "Администратор компании", member: "Сотрудник", admin: "Оператор" };
+  const ROLE: Record<string, string> = { approver: "Администратор компании", member: "Сотрудник", admin: "Тех. аккаунт" };
   return (
     <div className="split">
       <div className="card">
@@ -426,7 +373,7 @@ function Team({ id }: { id: number }) {
         {code && <p>Отправьте ссылку (одноразовая):<br /><code>https://t.me/aimarketologgbot?start={code}</code></p>}
         <p className="muted">
           Администратор компании согласует публикации в чате бота и сам приглашает сотрудников командой /invite.
-          Сотрудник ставит задачи в чате. Оператор (вы) настраивает компанию, но материалы не создаёт.
+          Сотрудник ставит задачи в чате. 
         </p>
       </div>
       <div>

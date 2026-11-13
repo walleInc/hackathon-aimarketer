@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from fastapi import Depends, Header, HTTPException
+from fastapi import Depends, Header, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -79,4 +79,16 @@ async def get_ctx(
 async def require_admin(ctx: Ctx = Depends(get_ctx)) -> Ctx:
     if not ctx.is_admin:
         raise HTTPException(403, "Только для администратора")
+    return ctx
+
+
+async def require_manager(request: Request, ctx: Ctx = Depends(get_ctx)) -> Ctx:
+    """Кабинет: технический администратор — все компании, администратор компании — только своя."""
+    if ctx.is_admin:
+        return ctx
+    if ctx.user.role != "approver" or ctx.user.company_id is None:
+        raise HTTPException(403, "Только для администратора")
+    cid = request.path_params.get("company_id")
+    if cid is not None and int(cid) != ctx.user.company_id:
+        raise HTTPException(403, "Чужая компания")
     return ctx
