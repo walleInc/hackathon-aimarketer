@@ -20,7 +20,7 @@ async def test_user_cannot_switch_company_with_header(client, env):
 
 
 async def test_admin_endpoints_forbidden_for_clients(client, env):
-    assert (await client.get("/api/admin/companies", headers=as_user(100))).status_code == 403
+    assert (await client.get("/api/admin/companies", headers=as_user(101))).status_code == 403  # сотрудник
     assert (await client.get("/api/admin/companies", headers=as_user(1))).status_code == 200
 
 

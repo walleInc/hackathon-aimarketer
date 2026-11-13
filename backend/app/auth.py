@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from fastapi import Depends, Header, HTTPException
+from fastapi import Depends, Header, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,9 +19,19 @@ class Ctx:
     def is_admin(self) -> bool:
         return self.user.role == "admin"
 
+    # Роли: admin — оператор сервиса (настраивает компании, материалы не создаёт и не согласует);
+    # approver — администратор компании (согласует, ставит задачи); member — сотрудник (ставит задачи).
     @property
     def can_approve(self) -> bool:
-        return self.user.role in ("admin", "approver")
+        return self.user.role == "approver"
+
+    @property
+    def can_create(self) -> bool:
+        return self.user.role in ("approver", "member")
+
+    def require_creator(self) -> None:
+        if not self.can_create:
+            raise HTTPException(403, "Оператор настраивает систему; материалы создают сотрудники компании")
 
     def require_company(self) -> int:
         if self.company_id is None:
@@ -69,4 +79,16 @@ async def get_ctx(
 async def require_admin(ctx: Ctx = Depends(get_ctx)) -> Ctx:
     if not ctx.is_admin:
         raise HTTPException(403, "Только для администратора")
+    return ctx
+
+
+async def require_manager(request: Request, ctx: Ctx = Depends(get_ctx)) -> Ctx:
+    """Кабинет: технический администратор — все компании, администратор компании — только своя."""
+    if ctx.is_admin:
+        return ctx
+    if ctx.user.role != "approver" or ctx.user.company_id is None:
+        raise HTTPException(403, "Только для администратора")
+    cid = request.path_params.get("company_id")
+    if cid is not None and int(cid) != ctx.user.company_id:
+        raise HTTPException(403, "Чужая компания")
     return ctx

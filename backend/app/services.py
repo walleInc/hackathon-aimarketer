@@ -80,6 +80,27 @@ async def decide(session: AsyncSession, post: Post, user: User, decision: str, c
     return post
 
 
+async def _notify_author(session: AsyncSession, post: Post, decider: User, decision: str, comment: str) -> None:
+    """Сотрудник, поставивший задачу, узнаёт в чате о решении по своему материалу."""
+    if not post.created_by or post.created_by == decider.id:
+        return
+    author = await session.get(User, post.created_by)
+    if author is None:
+        return
+    label = {"approve": "одобрен", "reject": "отклонён", "revise": "возвращён на доработку"}[decision]
+    if post.status == S.PUBLISHED.value:
+        label = "одобрен и опубликован"
+    elif post.status == S.FAILED.value:
+        label = "одобрен, но публикация не удалась"
+    text = f"Материал #{post.id} {label}." + (f"\nКомментарий: {comment}" if comment else "")
+    try:
+        from .tg import notify_user
+
+        await notify_user(author.telegram_id, text)
+    except Exception:
+        log.exception("notify_author failed")
+
+
 async def edit_post_text(session: AsyncSession, post: Post, text: str, user_id: int | None = None) -> Post:
     """Любая правка текста увеличивает версию и требует повторного согласования."""
     if post.status in (S.PUBLISHING.value, S.PUBLISHED.value, S.REJECTED.value):

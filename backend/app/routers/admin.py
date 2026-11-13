@@ -4,7 +4,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from PIL import Image
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,7 +16,14 @@ from ..media import media_path, new_media_file
 from ..models import BrandAsset, AuditLog, Company, Invite, KnowledgeDoc, Post, SocialAccount, Task, UsageCost, User
 from ..security import encrypt
 
-router = APIRouter(prefix="/api/admin", dependencies=[Depends(require_admin)])
+# Доступ: технический администратор (ADMIN_IDS) — все компании; администратор компании — только своя
+# (проверяется в require_manager по company_id из пути и в _own для операций по id сущности).
+router = APIRouter(prefix="/api/admin", dependencies=[Depends(require_manager)])
+
+
+def _own(ctx: Ctx, company_id: int | None) -> None:
+    if not ctx.is_admin and ctx.company_id != company_id:
+        raise HTTPException(404, "Не найдено")
 
 
 async def _company(session: AsyncSession, company_id: int) -> Company:
@@ -55,8 +62,11 @@ def company_out(c: Company) -> dict:
 
 
 @router.get("/companies")
-async def list_companies(session: AsyncSession = Depends(get_session)):
-    rows = (await session.execute(select(Company).order_by(Company.id))).scalars()
+async def list_companies(ctx: Ctx = Depends(require_manager), session: AsyncSession = Depends(get_session)):
+    q = select(Company).order_by(Company.id)
+    if not ctx.is_admin:
+        q = q.where(Company.id == ctx.company_id)
+    rows = (await session.execute(q)).scalars()
     return [company_out(c) for c in rows]
 
 
@@ -70,9 +80,11 @@ async def create_company(body: CompanyCreate, ctx: Ctx = Depends(require_admin),
 
 
 @router.put("/companies/{company_id}")
-async def update_company(company_id: int, body: CompanyUpdate, ctx: Ctx = Depends(require_admin), session: AsyncSession = Depends(get_session)):
+async def update_company(company_id: int, body: CompanyUpdate, ctx: Ctx = Depends(require_manager), session: AsyncSession = Depends(get_session)):
     company = await _company(session, company_id)
     changes = body.model_dump(exclude_unset=True, exclude_none=True)
+    if not ctx.is_admin and {"daily_post_limit", "monthly_token_limit"} & changes.keys():
+        raise HTTPException(403, "Лимиты расходов задаёт поставщик услуги")
     for k, v in changes.items():
         setattr(company, k, v)
     await session.commit()
@@ -87,10 +99,11 @@ class KnowledgeIn(BaseModel):
 
 
 @router.put("/knowledge/{doc_id}")
-async def update_knowledge(doc_id: int, body: KnowledgeIn, ctx: Ctx = Depends(require_admin), session: AsyncSession = Depends(get_session)):
+async def update_knowledge(doc_id: int, body: KnowledgeIn, ctx: Ctx = Depends(require_manager), session: AsyncSession = Depends(get_session)):
     doc = await session.get(KnowledgeDoc, doc_id)
     if doc is None:
         raise HTTPException(404)
+    _own(ctx, doc.company_id)
     doc.title, doc.content, doc.updated_at = body.title, body.content, utcnow()
     await session.commit()
     await services.audit(session, doc.company_id, ctx.user.id, "knowledge.updated", doc.title)
@@ -115,7 +128,7 @@ async def list_assets(company_id: int, session: AsyncSession = Depends(get_sessi
 @router.post("/companies/{company_id}/assets")
 async def upload_asset(
     company_id: int, kind: str = Form(...), file: UploadFile = File(...),
-    ctx: Ctx = Depends(require_admin), session: AsyncSession = Depends(get_session),
+    ctx: Ctx = Depends(require_manager), session: AsyncSession = Depends(get_session),
 ):
     await _company(session, company_id)
     if kind not in ALLOWED_EXT:
@@ -141,10 +154,11 @@ async def upload_asset(
 
 
 @router.delete("/assets/{asset_id}")
-async def delete_asset(asset_id: int, ctx: Ctx = Depends(require_admin), session: AsyncSession = Depends(get_session)):
+async def delete_asset(asset_id: int, ctx: Ctx = Depends(require_manager), session: AsyncSession = Depends(get_session)):
     asset = await session.get(BrandAsset, asset_id)
     if asset is None:
         raise HTTPException(404)
+    _own(ctx, asset.company_id)
     media_path(asset.path).unlink(missing_ok=True)
     await session.delete(asset)
     await session.commit()
@@ -208,7 +222,7 @@ class SocialIn(BaseModel):
 
 
 @router.post("/companies/{company_id}/social")
-async def add_social(company_id: int, body: SocialIn, ctx: Ctx = Depends(require_admin), session: AsyncSession = Depends(get_session)):
+async def add_social(company_id: int, body: SocialIn, ctx: Ctx = Depends(require_manager), session: AsyncSession = Depends(get_session)):
     await _company(session, company_id)
     acc = SocialAccount(
         company_id=company_id, platform=body.platform, channel_id=body.channel_id, token_encrypted=encrypt(body.token)
@@ -227,76 +241,24 @@ async def list_social(company_id: int, session: AsyncSession = Depends(get_sessi
 
 
 @router.delete("/social/{account_id}")
-async def revoke_social(account_id: int, ctx: Ctx = Depends(require_admin), session: AsyncSession = Depends(get_session)):
+async def revoke_social(account_id: int, ctx: Ctx = Depends(require_manager), session: AsyncSession = Depends(get_session)):
     acc = await session.get(SocialAccount, account_id)
     if acc is None:
         raise HTTPException(404)
+    _own(ctx, acc.company_id)
     acc.active, acc.token_encrypted = False, ""
     await session.commit()
     await services.audit(session, acc.company_id, ctx.user.id, "social.revoked", str(acc.id))
     return {"ok": True}
 
 
-class OperatorIn(BaseModel):
-    telegram_id: int = Field(gt=0)
-    name: str = ""
-
-
-def _operator_out(telegram_id: int, name: str, company_id: int | None, me_id: int) -> dict:
-    return {
-        "telegram_id": telegram_id, "name": name, "company_id": company_id,
-        # env — задан в ADMIN_IDS на сервере (постоянный оператор), db — управляется отсюда
-        "source": "env" if telegram_id in settings.admin_id_set else "db",
-        "you": telegram_id == me_id,
-    }
-
-
-@router.get("/operators")
-async def list_operators(ctx: Ctx = Depends(require_admin), session: AsyncSession = Depends(get_session)):
-    rows = (await session.execute(select(User).where(User.role == "admin").order_by(User.id))).scalars().all()
-    out = [_operator_out(u.telegram_id, u.name, u.company_id, ctx.user.telegram_id) for u in rows]
-    known = {o["telegram_id"] for o in out}
-    # операторы из ADMIN_IDS, которые ещё не писали боту
-    out += [_operator_out(t, "", None, ctx.user.telegram_id) for t in sorted(settings.admin_id_set - known)]
-    return out
-
-
-@router.post("/operators")
-async def add_operator(body: OperatorIn, ctx: Ctx = Depends(require_admin), session: AsyncSession = Depends(get_session)):
-    user = (await session.execute(select(User).where(User.telegram_id == body.telegram_id))).scalar_one_or_none()
-    if user is None:
-        user = User(telegram_id=body.telegram_id, name=body.name, role="admin")
-        session.add(user)
-    else:
-        user.role = "admin"
-        user.name = body.name or user.name
-    await session.commit()
-    await services.audit(session, None, ctx.user.id, "operator.added", str(body.telegram_id))
-    return {"ok": True}
-
-
-@router.delete("/operators/{telegram_id}")
-async def remove_operator(telegram_id: int, ctx: Ctx = Depends(require_admin), session: AsyncSession = Depends(get_session)):
-    if telegram_id in settings.admin_id_set:
-        raise HTTPException(409, "Оператор задан в настройках сервера (ADMIN_IDS): уберите его оттуда")
-    if telegram_id == ctx.user.telegram_id:
-        raise HTTPException(409, "Нельзя убрать самого себя")
-    user = (await session.execute(select(User).where(User.telegram_id == telegram_id, User.role == "admin"))).scalar_one_or_none()
-    if user is None:
-        raise HTTPException(404, "Оператор не найден")
-    if user.company_id:  # бывший оператор остаётся сотрудником своей компании, но без прав администратора
-        user.role = "member"
-    else:
-        await session.delete(user)
-    await session.commit()
-    await services.audit(session, None, ctx.user.id, "operator.removed", str(telegram_id))
-    return {"ok": True}
-
-
 @router.get("/stats")
-async def stats(session: AsyncSession = Depends(get_session)):
+async def stats(ctx: Ctx = Depends(require_manager), session: AsyncSession = Depends(get_session)):
     """Сводка для дашборда: по каждой компании — посты по статусам, команда, расходы."""
-    companies = (await session.execute(select(Company).order_by(Company.id))).scalars().all()
+    q = select(Company).order_by(Company.id)
+    if not ctx.is_admin:
+        q = q.where(Company.id == ctx.company_id)
+    companies = (await session.execute(q)).scalars().all()
     posts = await session.execute(select(Post.company_id, Post.status, func.count()).group_by(Post.company_id, Post.status))
     by_company: dict[int, dict[str, int]] = {}
     for cid, status, n in posts:
@@ -330,6 +292,40 @@ async def company_users(company_id: int, session: AsyncSession = Depends(get_ses
     return [{"id": u.id, "telegram_id": u.telegram_id, "name": u.name, "role": u.role} for u in rows]
 
 
+class RoleIn(BaseModel):
+    role: str  # approver | member
+
+
+async def _team_member(session: AsyncSession, ctx: Ctx, company_id: int, user_id: int) -> User:
+    user = await session.get(User, user_id)
+    if user is None or user.company_id != company_id or user.role == "admin":
+        raise HTTPException(404, "Сотрудник не найден")
+    if user.id == ctx.user.id:
+        raise HTTPException(409, "Нельзя изменить самого себя")
+    return user
+
+
+@router.patch("/companies/{company_id}/users/{user_id}")
+async def change_role(company_id: int, user_id: int, body: RoleIn, ctx: Ctx = Depends(require_manager), session: AsyncSession = Depends(get_session)):
+    if body.role not in ("approver", "member"):
+        raise HTTPException(422, "role must be approver|member")
+    user = await _team_member(session, ctx, company_id, user_id)
+    user.role = body.role
+    await session.commit()
+    await services.audit(session, company_id, ctx.user.id, "user.role_changed", f"user={user.telegram_id} role={body.role}")
+    return {"ok": True}
+
+
+@router.delete("/companies/{company_id}/users/{user_id}")
+async def remove_member(company_id: int, user_id: int, ctx: Ctx = Depends(require_manager), session: AsyncSession = Depends(get_session)):
+    """Отзыв доступа: человек отвязывается от компании. Строка остаётся, чтобы не ломать историю решений и журнал."""
+    user = await _team_member(session, ctx, company_id, user_id)
+    user.company_id, user.role, user.state = None, "member", ""
+    await session.commit()
+    await services.audit(session, company_id, ctx.user.id, "user.removed", f"user={user.telegram_id}")
+    return {"ok": True}
+
+
 @router.get("/companies/{company_id}/posts")
 async def company_posts(company_id: int, session: AsyncSession = Depends(get_session)):
     rows = (await session.execute(select(Post).where(Post.company_id == company_id).order_by(Post.id.desc()).limit(50))).scalars()
@@ -354,10 +350,11 @@ class TaskToggle(BaseModel):
 
 
 @router.patch("/tasks/{task_id}")
-async def toggle_task(task_id: int, body: TaskToggle, ctx: Ctx = Depends(require_admin), session: AsyncSession = Depends(get_session)):
+async def toggle_task(task_id: int, body: TaskToggle, ctx: Ctx = Depends(require_manager), session: AsyncSession = Depends(get_session)):
     task = await session.get(Task, task_id)
     if task is None:
         raise HTTPException(404)
+    _own(ctx, task.company_id)
     task.active = body.active
     await session.commit()
     await services.audit(session, task.company_id, ctx.user.id, "task.toggled", f"task={task.id} active={body.active}")
@@ -365,10 +362,11 @@ async def toggle_task(task_id: int, body: TaskToggle, ctx: Ctx = Depends(require
 
 
 @router.delete("/knowledge/{doc_id}")
-async def delete_knowledge(doc_id: int, ctx: Ctx = Depends(require_admin), session: AsyncSession = Depends(get_session)):
+async def delete_knowledge(doc_id: int, ctx: Ctx = Depends(require_manager), session: AsyncSession = Depends(get_session)):
     doc = await session.get(KnowledgeDoc, doc_id)
     if doc is None:
         raise HTTPException(404)
+    _own(ctx, doc.company_id)
     await session.delete(doc)
     await session.commit()
     await services.audit(session, doc.company_id, ctx.user.id, "knowledge.deleted", doc.title)
@@ -436,7 +434,9 @@ async def analytics(session: AsyncSession = Depends(get_session)):
 
 
 @router.get("/audit")
-async def audit_log(company_id: int | None = None, session: AsyncSession = Depends(get_session)):
+async def audit_log(company_id: int | None = None, ctx: Ctx = Depends(require_manager), session: AsyncSession = Depends(get_session)):
+    if not ctx.is_admin:
+        company_id = ctx.company_id  # администратор компании видит журнал только своей компании
     q = select(AuditLog).order_by(AuditLog.id.desc()).limit(200)
     if company_id:
         q = q.where(AuditLog.company_id == company_id)
@@ -448,9 +448,11 @@ async def audit_log(company_id: int | None = None, session: AsyncSession = Depen
 
 
 @router.get("/usage")
-async def usage(session: AsyncSession = Depends(get_session)):
-    rows = await session.execute(
-        select(UsageCost.company_id, UsageCost.kind, func.sum(UsageCost.tokens), func.sum(UsageCost.cost_usd))
-        .group_by(UsageCost.company_id, UsageCost.kind)
+async def usage(ctx: Ctx = Depends(require_manager), session: AsyncSession = Depends(get_session)):
+    q = select(UsageCost.company_id, UsageCost.kind, func.sum(UsageCost.tokens), func.sum(UsageCost.cost_usd)).group_by(
+        UsageCost.company_id, UsageCost.kind
     )
+    if not ctx.is_admin:
+        q = q.where(UsageCost.company_id == ctx.company_id)
+    rows = await session.execute(q)
     return [{"company_id": c, "kind": k, "tokens": t or 0, "cost_usd": float(s or 0)} for c, k, t, s in rows]

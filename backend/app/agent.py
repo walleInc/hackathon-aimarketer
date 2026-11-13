@@ -10,7 +10,7 @@ from . import branding, cache, context_files, limits, platforms, services
 from .config import settings
 from .llm import get_llm
 from .media import media_path
-from .models import Company, KnowledgeDoc, Message, Post, UsageCost, User
+from .models import Company, KnowledgeDoc, Message, Post, Task, UsageCost, User
 
 KNOWLEDGE_LIMIT = 8000
 HISTORY_LIMIT = 12
@@ -29,9 +29,34 @@ SYSTEM = """Ты — AI-маркетолог компании «{name}». Раб
 JSON_RULES = """
 Отвечай СТРОГО JSON-объектом одного из видов:
 {"action": "create_post", "platform": "telegram", "post_text": "...", "headline": "заголовок до 7 слов", "card_text": "одна короткая фраза до 140 символов для карточки", "image_prompt": "описание картинки", "reply": "что сообщить пользователю"}
+{"action": "schedule_task", "task_prompt": "что готовить регулярно", "interval_minutes": 1440, "reply": "что сообщить пользователю"}
 {"action": "reply", "reply": "ответ пользователю"}
-Выбирай create_post, когда просят подготовить публикацию/пост. На остальные вопросы отвечай reply,
-опираясь на базу знаний и историю диалога. Пиши на языке пользователя."""
+
+Ты не чат-бот для бесед, а исполнитель: твоя работа — готовить публикации.
+- create_post: ЛЮБОЙ запрос, где нужен материал для соцсетей — пост, текст, анонс, акция, новость, идея, объявление,
+  «напиши», «подготовь», «придумай», «сделай» про продукт, услугу, событие или тему. Не обсуждай — сразу готовь
+  готовый текст в post_text. Если данных мало, используй то, что есть в базе знаний, и не выдумывай факты.
+- schedule_task: просят делать что-то регулярно («каждый день», «раз в неделю»). interval_minutes — период в минутах.
+- reply: ТОЛЬКО вопросы о компании, истории и ранее принятых решениях, либо если для поста нет ни одного факта
+  (тогда попроси нужные сведения).
+Пиши на языке пользователя."""
+
+_CONTENT_HINTS = (
+    "пост", "напиши", "подготов", "придума", "анонс", "публикац", "объявлен", "акци", "текст для", "сделай", "создай",
+    "рассылк", "новост", "контент", "сторис", "заголов",
+)
+
+
+def _looks_like_post_request(text: str) -> bool:
+    t = text.lower()
+    return any(h in t for h in _CONTENT_HINTS)
+
+
+FORCE_POST = (
+    "Пользователь просит готовый материал. Ответь ТОЛЬКО JSON вида create_post "
+    "(platform, post_text, headline, card_text, image_prompt, reply) без пояснений. "
+    "post_text — готовый текст публикации, а не обсуждение."
+)
 
 BRAND_CHECK = """ПРОВЕРКА_БРЕНДА
 Проверь текст поста на соответствие правилам бренда, тону и фактам из базы знаний:
@@ -161,15 +186,42 @@ async def handle_message(session: AsyncSession, company_id: int, user: User | No
             select(Message).where(Message.company_id == company_id).order_by(Message.id.desc()).limit(HISTORY_LIMIT)
         )
     ).scalars().all()
-    messages = [{"role": m.role, "content": m.content} for m in reversed(history)]
+    # История подаётся в том же JSON-формате, что и требуемый ответ: иначе модель копирует прежние
+    # ответы обычным текстом и перестаёт выполнять действия.
+    messages = [
+        {"role": m.role, "content": json.dumps({"action": "reply", "reply": m.content}, ensure_ascii=False)
+         if m.role == "assistant" else m.content}
+        for m in reversed(history)
+    ]
 
     res = await llm.complete(await _system_prompt(session, company_id), messages, json_mode=True)
     await _record_llm(session, company_id, res)
     data = _parse(res.text)
 
+    # Модель ответила беседой на просьбу о материале — один раз повторяем с жёстким требованием выдать пост.
+    if _looks_like_post_request(text) and not (
+        (data.get("action") == "create_post" and data.get("post_text")) or data.get("action") == "schedule_task"
+    ):
+        forced = await llm.complete(
+            await _system_prompt(session, company_id),
+            [{"role": "user", "content": f"{text}\n\n{FORCE_POST}"}],  # без истории: прежние ответы-беседы сбивают модель
+            json_mode=True,
+        )
+        await _record_llm(session, company_id, forced)
+        retry = _parse(forced.text)
+        if retry.get("action") == "create_post" and retry.get("post_text"):
+            data = retry
+
     post_id = None
     reply = data.get("reply") or ""
-    if data.get("action") == "create_post" and data.get("post_text"):
+    if data.get("action") == "schedule_task" and data.get("task_prompt"):
+        interval = max(int(data.get("interval_minutes") or 1440), 60)
+        task = Task(company_id=company_id, prompt=str(data["task_prompt"])[:1000], interval_minutes=interval)
+        session.add(task)
+        await session.commit()
+        await services.audit(session, company_id, user.id if user else None, "task.created", f"task={task.id} via chat")
+        reply = reply or f"Готово, буду готовить материалы по расписанию: раз в {interval // 60 or 1} ч."
+    elif data.get("action") == "create_post" and data.get("post_text"):
         try:
             await limits.check_post_quota(session, company)
         except limits.LimitExceeded as e:
