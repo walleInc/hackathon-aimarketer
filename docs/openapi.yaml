@@ -1,0 +1,938 @@
+openapi: 3.0.3
+info:
+  title: AI-маркетолог — Core API
+  version: 0.1.0
+  description: |
+    Собрано из backend/app/main.py, routers/client.py, routers/admin.py (30 методов /api + /health + /webhook = 32 маршрута; плюс статика /media/* и /).
+    Каждая операция помечена `x-status`:
+      - `implemented` — есть в коде;
+      - `proposed`    — предложено по ТЗ «Кибер 102» (пункт ТЗ указан в `x-tz`).
+    Авторизация: `Authorization: tma <initData>` (dev: `X-Dev-User: <id>`). Админ может выбрать компанию заголовком `X-Company-Id`.
+servers:
+  - url: http://localhost:8000
+security:
+  - tma: []
+tags:
+  - {name: service, description: Служебные}
+  - {name: client, description: Клиентское API}
+  - {name: admin, description: Админское API (роль admin)}
+  - {name: proposed-content, description: Предложено — контент (ТЗ 3.3)}
+  - {name: proposed-social, description: Предложено — соцсети и комментарии (ТЗ 3.4)}
+  - {name: proposed-analytics, description: Предложено — аналитика (ТЗ 3.6)}
+  - {name: proposed-business, description: Предложено — изучение бизнеса (ТЗ 3.2)}
+  - {name: proposed-admin, description: Предложено — администрирование, безопасность, LLM}
+components:
+  securitySchemes:
+    tma:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: "`tma <initData>` — подпись Telegram Mini App; в dev `X-Dev-User`"
+  parameters:
+    CompanyId: {name: company_id, in: path, required: true, schema: {type: integer}}
+    PostId: {name: post_id, in: path, required: true, schema: {type: integer}}
+    TaskId: {name: task_id, in: path, required: true, schema: {type: integer}}
+    DocId: {name: doc_id, in: path, required: true, schema: {type: integer}}
+    AssetId: {name: asset_id, in: path, required: true, schema: {type: integer}}
+    AccountId: {name: account_id, in: path, required: true, schema: {type: integer}}
+    Period: {name: period, in: query, schema: {type: string, enum: [7d, 30d, 90d], default: 30d}}
+    XCompany: {name: X-Company-Id, in: header, required: false, schema: {type: integer}, description: Только для admin}
+  responses:
+    Ok: {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/OkOut'}}}}
+    NotFound: {description: Не найдено}
+    Forbidden: {description: Нет прав}
+    Conflict: {description: Недопустимый переход статуса}
+    TooMany: {description: Исчерпан лимит (токены/дневной лимит)}
+  schemas:
+    OkOut: {type: object, properties: {ok: {type: boolean}}}
+    IdOut: {type: object, properties: {id: {type: integer}}}
+    PostStatus:
+      type: string
+      enum: [draft, pending_approval, approved, rejected, revision, publishing, published, error]
+      description: Точный набор — см. backend/app/workflow.py
+    Post:
+      type: object
+      properties:
+        id: {type: integer}
+        platform: {type: string}
+        text: {type: string}
+        image_url: {type: string, nullable: true}
+        status: {$ref: '#/components/schemas/PostStatus'}
+        version: {type: integer}
+        scheduled_at: {type: string, format: date-time, nullable: true}
+        error: {type: string, nullable: true}
+        created_at: {type: string, format: date-time}
+        check_notes: {type: string, nullable: true}
+    Me:
+      type: object
+      properties:
+        telegram_id: {type: integer}
+        role: {type: string, enum: [admin, approver, member]}
+        company: {type: object, nullable: true, properties: {id: {type: integer}, name: {type: string}}}
+    DecisionIn:
+      type: object
+      required: [decision]
+      properties:
+        decision: {type: string, enum: [approve, reject, revise]}
+        comment: {type: string, default: ''}
+    TextIn: {type: object, required: [text], properties: {text: {type: string}}}
+    AgentOut: {type: object, properties: {reply: {type: string}, post_id: {type: integer, nullable: true}}}
+    Task:
+      type: object
+      properties:
+        id: {type: integer}
+        prompt: {type: string}
+        interval_minutes: {type: integer}
+        active: {type: boolean}
+        last_run: {type: string, format: date-time, nullable: true}
+    TaskIn:
+      type: object
+      required: [prompt]
+      properties:
+        prompt: {type: string}
+        interval_minutes: {type: integer, default: 1440, minimum: 1}
+    CompanyFields:
+      type: object
+      properties:
+        name: {type: string}
+        description: {type: string}
+        brand_style: {type: string}
+        brand_rules: {type: string}
+        brand_colors: {type: string}
+        daily_post_limit: {type: integer, default: 5}
+        monthly_token_limit: {type: integer, default: 300000}
+    Company:
+      allOf:
+        - $ref: '#/components/schemas/CompanyFields'
+        - {type: object, properties: {id: {type: integer}}}
+    KnowledgeIn: {type: object, required: [title, content], properties: {title: {type: string}, content: {type: string}}}
+    KnowledgeDoc:
+      type: object
+      properties:
+        id: {type: integer}
+        title: {type: string}
+        content: {type: string}
+        size: {type: integer}
+        updated_at: {type: string, format: date-time}
+    Asset:
+      type: object
+      properties:
+        id: {type: integer}
+        kind: {type: string, enum: [logo_color, logo_white, logo_black, icon, pattern, example, font_heading, font_body]}
+        filename: {type: string}
+        url: {type: string}
+    SocialIn:
+      type: object
+      required: [channel_id]
+      properties:
+        platform: {type: string, default: telegram, description: "telegram | vk | max (vk, max — proposed)"}
+        channel_id: {type: string}
+        token: {type: string, description: Пусто = токен основного бота; шифруется Fernet, наружу не отдаётся}
+    SocialAccount:
+      type: object
+      properties:
+        id: {type: integer}
+        platform: {type: string}
+        channel_id: {type: string}
+        active: {type: boolean}
+    User:
+      type: object
+      properties:
+        id: {type: integer}
+        telegram_id: {type: integer}
+        name: {type: string}
+        role: {type: string}
+    Invite:
+      type: object
+      properties:
+        code: {type: string}
+        start_param: {type: string}
+        deeplink_hint: {type: string}
+    AuditEntry:
+      type: object
+      properties:
+        id: {type: integer}
+        company_id: {type: integer}
+        user_id: {type: integer}
+        action: {type: string}
+        details: {type: string}
+        created_at: {type: string, format: date-time}
+
+paths:
+  # ───────────────────────── Служебные (implemented) ─────────────────────────
+  /health:
+    get:
+      tags: [service]
+      summary: Проверка живости
+      x-status: implemented
+      security: []
+      responses: {'200': {description: '{"ok": true}'}}
+  /webhook/{secret}:
+    post:
+      tags: [service]
+      summary: Приём обновлений Telegram-бота
+      x-status: implemented
+      security: []
+      parameters: [{name: secret, in: path, required: true, schema: {type: string}}]
+      requestBody: {content: {application/json: {schema: {type: object, description: Telegram Update}}}}
+      responses: {'200': {$ref: '#/components/responses/Ok'}, '404': {description: Неверный секрет}}
+  /media/{path}:
+    get:
+      tags: [service]
+      summary: Раздача загруженных файлов (картинки, бренд-ассеты) — StaticFiles
+      x-status: implemented
+      security: []
+      parameters: [{name: path, in: path, required: true, schema: {type: string}}]
+      responses: {'200': {description: Файл}}
+
+  # ───────────────────────── Клиентское API (implemented) ─────────────────────────
+  /api/me:
+    get:
+      tags: [client]
+      summary: Текущий пользователь и компания
+      x-status: implemented
+      responses: {'200': {content: {application/json: {schema: {$ref: '#/components/schemas/Me'}}}, description: OK}}
+  /api/posts:
+    get:
+      tags: [client]
+      summary: Список постов компании (до 100, новые сверху)
+      x-status: implemented
+      parameters: [{name: status, in: query, schema: {$ref: '#/components/schemas/PostStatus'}}]
+      responses: {'200': {content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Post'}}}}, description: OK}}
+  /api/posts/{post_id}:
+    parameters: [{$ref: '#/components/parameters/PostId'}]
+    get:
+      tags: [client]
+      summary: Один пост
+      x-status: implemented
+      responses: {'200': {content: {application/json: {schema: {$ref: '#/components/schemas/Post'}}}, description: OK}, '404': {$ref: '#/components/responses/NotFound'}}
+    patch:
+      tags: [client]
+      summary: Ручная правка текста (новая версия → повторное согласование)
+      x-status: implemented
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/TextIn'}}}}
+      responses: {'200': {content: {application/json: {schema: {$ref: '#/components/schemas/Post'}}}, description: OK}, '409': {$ref: '#/components/responses/Conflict'}}
+  /api/posts/{post_id}/decision:
+    post:
+      tags: [client]
+      summary: Согласование approve/reject/revise (только admin/approver)
+      x-status: implemented
+      parameters: [{$ref: '#/components/parameters/PostId'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/DecisionIn'}}}}
+      responses:
+        '200': {content: {application/json: {schema: {$ref: '#/components/schemas/Post'}}}, description: OK}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '429': {$ref: '#/components/responses/TooMany'}
+  /api/agent/message:
+    post:
+      tags: [client]
+      summary: Сообщение AI-агенту (генерация/правка поста)
+      x-status: implemented
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/TextIn'}}}}
+      responses: {'200': {content: {application/json: {schema: {$ref: '#/components/schemas/AgentOut'}}}, description: OK}}
+  /api/tasks:
+    get:
+      tags: [client]
+      summary: Регулярные задачи компании
+      x-status: implemented
+      responses: {'200': {content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Task'}}}}, description: OK}}
+    post:
+      tags: [client]
+      summary: Создать регулярную задачу (admin — с X-Company-Id)
+      x-status: implemented
+      parameters: [{$ref: '#/components/parameters/XCompany'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/TaskIn'}}}}
+      responses: {'200': {content: {application/json: {schema: {$ref: '#/components/schemas/IdOut'}}}, description: OK}}
+
+  # ───────────────────────── Админское API (implemented) ─────────────────────────
+  /api/admin/companies:
+    get:
+      tags: [admin]
+      summary: Список компаний
+      x-status: implemented
+      responses: {'200': {content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Company'}}}}, description: OK}}
+    post:
+      tags: [admin]
+      summary: Создать компанию
+      x-status: implemented
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CompanyFields'}}}}
+      responses: {'200': {content: {application/json: {schema: {$ref: '#/components/schemas/IdOut'}}}, description: OK}}
+  /api/admin/companies/{company_id}:
+    parameters: [{$ref: '#/components/parameters/CompanyId'}]
+    put:
+      tags: [admin]
+      summary: Частичное обновление компании
+      x-status: implemented
+      requestBody: {content: {application/json: {schema: {$ref: '#/components/schemas/CompanyFields'}}}}
+      responses: {'200': {$ref: '#/components/responses/Ok'}}
+  /api/admin/stats:
+    get:
+      tags: [admin]
+      summary: Дашборд — посты по статусам, пользователи, каналы, токены (по компаниям)
+      x-status: implemented
+      responses: {'200': {description: OK}}
+  /api/admin/audit:
+    get:
+      tags: [admin]
+      summary: Журнал действий (до 200)
+      x-status: implemented
+      parameters: [{name: company_id, in: query, schema: {type: integer}}]
+      responses: {'200': {content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/AuditEntry'}}}}, description: OK}}
+  /api/admin/usage:
+    get:
+      tags: [admin]
+      summary: Расход токенов и стоимость по компаниям и типам
+      x-status: implemented
+      responses: {'200': {description: OK}}
+  /api/admin/companies/{company_id}/knowledge:
+    parameters: [{$ref: '#/components/parameters/CompanyId'}]
+    get:
+      tags: [admin]
+      summary: Документы базы знаний
+      x-status: implemented
+      responses: {'200': {content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/KnowledgeDoc'}}}}, description: OK}}
+    post:
+      tags: [admin]
+      summary: Добавить документ
+      x-status: implemented
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/KnowledgeIn'}}}}
+      responses: {'200': {content: {application/json: {schema: {$ref: '#/components/schemas/IdOut'}}}, description: OK}}
+  /api/admin/knowledge/{doc_id}:
+    parameters: [{$ref: '#/components/parameters/DocId'}]
+    put:
+      tags: [admin]
+      summary: Изменить документ
+      x-status: implemented
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/KnowledgeIn'}}}}
+      responses: {'200': {$ref: '#/components/responses/Ok'}}
+    delete:
+      tags: [admin]
+      summary: Удалить документ
+      x-status: implemented
+      responses: {'200': {$ref: '#/components/responses/Ok'}}
+  /api/admin/companies/{company_id}/assets:
+    parameters: [{$ref: '#/components/parameters/CompanyId'}]
+    get:
+      tags: [admin]
+      summary: Бренд-ассеты
+      x-status: implemented
+      responses: {'200': {content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Asset'}}}}, description: OK}}
+    post:
+      tags: [admin]
+      summary: Загрузить ассет (multipart, ≤15 МБ, проверка типа/изображения)
+      x-status: implemented
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [kind, file]
+              properties:
+                kind: {$ref: '#/components/schemas/Asset/properties/kind'}
+                file: {type: string, format: binary}
+      responses: {'200': {description: '{id, url}'}, '413': {description: Файл > 15 МБ}, '422': {description: Неверный тип}}
+  /api/admin/assets/{asset_id}:
+    delete:
+      tags: [admin]
+      summary: Удалить ассет (файл + запись)
+      x-status: implemented
+      parameters: [{$ref: '#/components/parameters/AssetId'}]
+      responses: {'200': {$ref: '#/components/responses/Ok'}}
+  /api/admin/companies/{company_id}/brand/preview:
+    post:
+      tags: [admin]
+      summary: Пробная карточка в фирменном стиле
+      x-status: implemented
+      parameters: [{$ref: '#/components/parameters/CompanyId'}]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                headline: {type: string}
+                body: {type: string}
+                style: {type: string, enum: [dark, light], default: dark}
+      responses: {'200': {description: '{url}'}}
+  /api/admin/companies/{company_id}/social:
+    parameters: [{$ref: '#/components/parameters/CompanyId'}]
+    get:
+      tags: [admin]
+      summary: Подключённые каналы (без токенов)
+      x-status: implemented
+      responses: {'200': {content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/SocialAccount'}}}}, description: OK}}
+    post:
+      tags: [admin]
+      summary: Подключить канал
+      x-status: implemented
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/SocialIn'}}}}
+      responses: {'200': {content: {application/json: {schema: {$ref: '#/components/schemas/IdOut'}}}, description: OK}}
+  /api/admin/social/{account_id}:
+    delete:
+      tags: [admin]
+      summary: Отозвать доступ (деактивация + стирание токена)
+      x-status: implemented
+      parameters: [{$ref: '#/components/parameters/AccountId'}]
+      responses: {'200': {$ref: '#/components/responses/Ok'}}
+  /api/admin/companies/{company_id}/users:
+    get:
+      tags: [admin]
+      summary: Сотрудники компании
+      x-status: implemented
+      parameters: [{$ref: '#/components/parameters/CompanyId'}]
+      responses: {'200': {content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/User'}}}}, description: OK}}
+  /api/admin/companies/{company_id}/posts:
+    get:
+      tags: [admin]
+      summary: Посты компании (до 50)
+      x-status: implemented
+      parameters: [{$ref: '#/components/parameters/CompanyId'}]
+      responses: {'200': {content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Post'}}}}, description: OK}}
+  /api/admin/companies/{company_id}/invite:
+    post:
+      tags: [admin]
+      summary: Создать инвайт-код
+      x-status: implemented
+      parameters: [{$ref: '#/components/parameters/CompanyId'}]
+      requestBody: {content: {application/json: {schema: {type: object, properties: {role: {type: string, enum: [approver, member], default: approver}}}}}}
+      responses: {'200': {content: {application/json: {schema: {$ref: '#/components/schemas/Invite'}}}, description: OK}}
+  /api/admin/companies/{company_id}/tasks:
+    get:
+      tags: [admin]
+      summary: Задачи компании
+      x-status: implemented
+      parameters: [{$ref: '#/components/parameters/CompanyId'}]
+      responses: {'200': {content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Task'}}}}, description: OK}}
+  /api/admin/tasks/{task_id}:
+    patch:
+      tags: [admin]
+      summary: Вкл/выкл задачу
+      x-status: implemented
+      parameters: [{$ref: '#/components/parameters/TaskId'}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [active], properties: {active: {type: boolean}}}}}}
+      responses: {'200': {$ref: '#/components/responses/Ok'}}
+
+  # ═════════════════════════ ПРЕДЛОЖЕНО ПО ТЗ ═════════════════════════
+  # ── 3.1 Диалог и уведомления ──
+  /api/agent/history:
+    get:
+      tags: [proposed-content]
+      summary: История диалога с агентом (последние N сообщений)
+      x-status: proposed
+      x-tz: "3.1 «поддержка диалога с историей», критерий 2"
+      parameters: [{name: limit, in: query, schema: {type: integer, default: 50}}]
+      responses: {'200': {description: "[{role, text, post_id, created_at}]"}}
+    delete:
+      tags: [proposed-content]
+      summary: Очистить контекст диалога
+      x-status: proposed
+      x-tz: "3.1"
+      responses: {'200': {$ref: '#/components/responses/Ok'}}
+  /api/notifications:
+    get:
+      tags: [proposed-content]
+      summary: Лента уведомлений (согласования, ошибки, отчёты, исчерпание бюджета)
+      x-status: proposed
+      x-tz: "3.1 «Уведомления о выполнении задач, проблемах и согласованиях»"
+      responses: {'200': {description: "[{id, kind, text, read, created_at}]"}}
+  /api/tasks/{task_id}:
+    parameters: [{$ref: '#/components/parameters/TaskId'}]
+    patch:
+      tags: [proposed-content]
+      summary: Изменить задачу (prompt, интервал, cron, вкл/выкл) — клиентом
+      x-status: proposed
+      x-tz: "3.1 расписание, 5 «Удобство»"
+      requestBody: {content: {application/json: {schema: {type: object, properties: {prompt: {type: string}, interval_minutes: {type: integer}, cron: {type: string}, active: {type: boolean}}}}}}
+      responses: {'200': {$ref: '#/components/responses/Ok'}}
+    delete:
+      tags: [proposed-content]
+      summary: Удалить задачу
+      x-status: proposed
+      x-tz: "3.1"
+      responses: {'200': {$ref: '#/components/responses/Ok'}}
+  /api/tasks/{task_id}/run:
+    post:
+      tags: [proposed-content]
+      summary: Запустить задачу немедленно (для демо «по расписанию»)
+      x-status: proposed
+      x-tz: "6 (демо автономной задачи), критерий 8"
+      parameters: [{$ref: '#/components/parameters/TaskId'}]
+      responses: {'202': {description: Запущено}}
+  /api/tasks/{task_id}/runs:
+    get:
+      tags: [proposed-content]
+      summary: История запусков задачи (статус, ошибка, созданный пост)
+      x-status: proposed
+      x-tz: "5 «Понятные статусы задач»"
+      parameters: [{$ref: '#/components/parameters/TaskId'}]
+      responses: {'200': {description: "[{id, started_at, status, error, post_id}]"}}
+
+  # ── 3.2 Изучение бизнеса ──
+  /api/admin/companies/{company_id}/knowledge/upload:
+    post:
+      tags: [proposed-business]
+      summary: Загрузка PDF/DOCX/TXT в базу знаний (парсинг + чанки)
+      x-status: proposed
+      x-tz: "3.2 «из документов», README: не реализовано"
+      parameters: [{$ref: '#/components/parameters/CompanyId'}]
+      requestBody: {required: true, content: {multipart/form-data: {schema: {type: object, properties: {file: {type: string, format: binary}}}}}}
+      responses: {'200': {content: {application/json: {schema: {$ref: '#/components/schemas/IdOut'}}}, description: OK}}
+  /api/admin/companies/{company_id}/knowledge/import-url:
+    post:
+      tags: [proposed-business]
+      summary: Импорт сайта компании (краулинг/парсинг страниц)
+      x-status: proposed
+      x-tz: "3.2 «из сайта»"
+      parameters: [{$ref: '#/components/parameters/CompanyId'}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [url], properties: {url: {type: string}, max_pages: {type: integer, default: 20}}}}}}
+      responses: {'202': {description: Задача импорта создана}}
+  /api/admin/companies/{company_id}/knowledge/search:
+    get:
+      tags: [proposed-business]
+      summary: Поиск по фрагментам базы знаний (проверка RAG)
+      x-status: proposed
+      x-tz: "3.2, критерий 3; docs §9"
+      parameters: [{$ref: '#/components/parameters/CompanyId'}, {name: q, in: query, required: true, schema: {type: string}}]
+      responses: {'200': {description: "[{doc_id, chunk, score}]"}}
+  /api/admin/companies/{company_id}/profile/analyze:
+    post:
+      tags: [proposed-business]
+      summary: Авто-извлечение продуктов, ЦА, преимуществ из знаний
+      x-status: proposed
+      x-tz: "3.2 «Определение продуктов, услуг, ЦА, преимуществ»"
+      parameters: [{$ref: '#/components/parameters/CompanyId'}]
+      responses: {'200': {description: "{products[], audience[], advantages[]} — на подтверждение админом"}}
+  /api/admin/companies/{company_id}/competitors:
+    parameters: [{$ref: '#/components/parameters/CompanyId'}]
+    get:
+      tags: [proposed-business]
+      summary: Конкуренты компании
+      x-status: proposed
+      x-tz: "3.2 «Изучение конкурентов»"
+      responses: {'200': {description: "[{id, name, url, vk_url, tg_channel}]"}}
+    post:
+      tags: [proposed-business]
+      summary: Добавить конкурента
+      x-status: proposed
+      x-tz: "3.2"
+      requestBody: {content: {application/json: {schema: {type: object, required: [name], properties: {name: {type: string}, url: {type: string}, vk_url: {type: string}, tg_channel: {type: string}}}}}}
+      responses: {'200': {content: {application/json: {schema: {$ref: '#/components/schemas/IdOut'}}}, description: OK}}
+  /api/admin/competitors/{competitor_id}:
+    delete:
+      tags: [proposed-business]
+      summary: Удалить конкурента
+      x-status: proposed
+      x-tz: "3.2"
+      parameters: [{name: competitor_id, in: path, required: true, schema: {type: integer}}]
+      responses: {'200': {$ref: '#/components/responses/Ok'}}
+  /api/competitors/analysis:
+    post:
+      tags: [proposed-business]
+      summary: Анализ маркетинговой активности конкурентов → выводы
+      x-status: proposed
+      x-tz: "3.2"
+      responses: {'200': {description: "{summary, formats[], posting_frequency, recommendations[]}"}}
+  /api/strategy:
+    get:
+      tags: [proposed-business]
+      summary: Текущая маркетинговая стратегия (версии)
+      x-status: proposed
+      x-tz: "3.2 «Формирование и актуализация стратегии»"
+      responses: {'200': {description: "{version, goals, audience, channels, rubrics, updated_at}"}}
+    post:
+      tags: [proposed-business]
+      summary: Сгенерировать/обновить стратегию (идёт на согласование)
+      x-status: proposed
+      x-tz: "3.2, 2 «Получает предложения и планы продвижения»"
+      requestBody: {content: {application/json: {schema: {type: object, properties: {comment: {type: string}}}}}}
+      responses: {'200': {description: OK}}
+
+  # ── 3.3 Контент ──
+  /api/content-plan:
+    get:
+      tags: [proposed-content]
+      summary: Контент-план на период (темы, даты, площадки, статусы)
+      x-status: proposed
+      x-tz: "3.3 «Создание контент-плана»"
+      parameters: [{name: from, in: query, schema: {type: string, format: date}}, {name: to, in: query, schema: {type: string, format: date}}]
+      responses: {'200': {description: "[{id, date, topic, platform, rubric, post_id, status}]"}}
+  /api/content-plan/generate:
+    post:
+      tags: [proposed-content]
+      summary: Сгенерировать контент-план (7/14/30 дней)
+      x-status: proposed
+      x-tz: "3.3 «Самостоятельное предложение тем»"
+      requestBody: {content: {application/json: {schema: {type: object, properties: {days: {type: integer, default: 7}, platforms: {type: array, items: {type: string}}}}}}}
+      responses: {'200': {description: OK}, '429': {$ref: '#/components/responses/TooMany'}}
+  /api/content-plan/{item_id}/approve:
+    post:
+      tags: [proposed-content]
+      summary: Утвердить тему плана → запустить подготовку поста
+      x-status: proposed
+      x-tz: "3.3, 3.5"
+      parameters: [{name: item_id, in: path, required: true, schema: {type: integer}}]
+      responses: {'200': {$ref: '#/components/responses/Ok'}}
+  /api/topics/suggest:
+    post:
+      tags: [proposed-content]
+      summary: Предложить N тем публикаций по знаниям и аналитике
+      x-status: proposed
+      x-tz: "3.3"
+      responses: {'200': {description: "[{topic, rationale}]"}}
+  /api/posts/create:
+    post:
+      tags: [proposed-content]
+      summary: Ручное создание черновика (текст, площадка, время, картинка)
+      x-status: proposed
+      x-tz: "3.4 «Создание черновиков»"
+      requestBody: {content: {application/json: {schema: {type: object, required: [text, platform], properties: {text: {type: string}, platform: {type: string}, scheduled_at: {type: string, format: date-time}}}}}}
+      responses: {'200': {content: {application/json: {schema: {$ref: '#/components/schemas/Post'}}}, description: OK}}
+  /api/posts/{post_id}/schedule:
+    patch:
+      tags: [proposed-content]
+      summary: Изменить время публикации (сбрасывает согласование при существенном изменении)
+      x-status: proposed
+      x-tz: "3.4 планирование, 3.5"
+      parameters: [{$ref: '#/components/parameters/PostId'}]
+      requestBody: {content: {application/json: {schema: {type: object, properties: {scheduled_at: {type: string, format: date-time, nullable: true}}}}}}
+      responses: {'200': {content: {application/json: {schema: {$ref: '#/components/schemas/Post'}}}, description: OK}}
+  /api/posts/{post_id}/image:
+    post:
+      tags: [proposed-content]
+      summary: Перегенерировать изображение (карточка / AI) или загрузить своё
+      x-status: proposed
+      x-tz: "3.3 «Генерация изображений»"
+      parameters: [{$ref: '#/components/parameters/PostId'}]
+      requestBody: {content: {application/json: {schema: {type: object, properties: {mode: {type: string, enum: [card, ai]}, prompt: {type: string}}}}}}
+      responses: {'200': {content: {application/json: {schema: {$ref: '#/components/schemas/Post'}}}, description: OK}}
+  /api/posts/{post_id}/adapt:
+    post:
+      tags: [proposed-content]
+      summary: Адаптировать пост под другую площадку (VK / TG / MAX) — создаёт новый пост
+      x-status: proposed
+      x-tz: "3.3 «Адаптация под соцсети»"
+      parameters: [{$ref: '#/components/parameters/PostId'}]
+      requestBody: {content: {application/json: {schema: {type: object, required: [platform], properties: {platform: {type: string}}}}}}
+      responses: {'200': {content: {application/json: {schema: {$ref: '#/components/schemas/IdOut'}}}, description: OK}}
+  /api/posts/{post_id}/history:
+    get:
+      tags: [proposed-content]
+      summary: Версии поста и решения (кто/когда/комментарий)
+      x-status: proposed
+      x-tz: "3.5, 5 «Понятные статусы»"
+      parameters: [{$ref: '#/components/parameters/PostId'}]
+      responses: {'200': {description: "[{version, text, decision, by, comment, at}]"}}
+  /api/posts/{post_id}/retry:
+    post:
+      tags: [proposed-content]
+      summary: Из «ошибка» вернуть на согласование/повторить публикацию
+      x-status: proposed
+      x-tz: "5 «Обработка ошибок»; docs §2.4"
+      parameters: [{$ref: '#/components/parameters/PostId'}]
+      responses: {'200': {content: {application/json: {schema: {$ref: '#/components/schemas/Post'}}}, description: OK}}
+  /api/posts/{post_id}/cancel:
+    post:
+      tags: [proposed-content]
+      summary: Отменить запланированную публикацию
+      x-status: proposed
+      x-tz: "3.5 «Запрет несанкционированных публикаций»"
+      parameters: [{$ref: '#/components/parameters/PostId'}]
+      responses: {'200': {$ref: '#/components/responses/Ok'}}
+  /api/video-scripts:
+    post:
+      tags: [proposed-content]
+      summary: Сценарий короткого видео (хук, кадры, озвучка, CTA) — как материал на согласование
+      x-status: proposed
+      x-tz: "3.3 «Сценарии для коротких видео»"
+      requestBody: {content: {application/json: {schema: {type: object, required: [topic], properties: {topic: {type: string}, duration_sec: {type: integer, default: 30}, platform: {type: string}}}}}}
+      responses: {'200': {description: "{post_id, script}"}}
+
+  # ── 3.4 Соцсети и комментарии ──
+  /api/admin/companies/{company_id}/social/{account_id}/check:
+    post:
+      tags: [proposed-social]
+      summary: Проверка подключения канала (права бота, токен VK/MAX валиден)
+      x-status: proposed
+      x-tz: "3.4 «Подключение аккаунтов», 5 «Минимальные права»"
+      parameters: [{$ref: '#/components/parameters/CompanyId'}, {$ref: '#/components/parameters/AccountId'}]
+      responses: {'200': {description: "{ok, platform, permissions[], warnings[]}"}}
+  /api/admin/companies/{company_id}/social/vk/oauth:
+    get:
+      tags: [proposed-social]
+      summary: Старт OAuth для сообщества ВКонтакте (минимальные scope)
+      x-status: proposed
+      x-tz: "3.4 ВКонтакте"
+      parameters: [{$ref: '#/components/parameters/CompanyId'}]
+      responses: {'302': {description: Redirect на VK}}
+  /api/comments:
+    get:
+      tags: [proposed-social]
+      summary: Входящие комментарии/обращения по площадкам
+      x-status: proposed
+      x-tz: "3.4 «Мониторинг комментариев и обращений»"
+      parameters: [{name: platform, in: query, schema: {type: string}}, {name: status, in: query, schema: {type: string, enum: [new, draft_reply, replied, ignored]}}]
+      responses: {'200': {description: "[{id, platform, post_id, author, text, sentiment, status}]"}}
+  /api/comments/{comment_id}/draft-reply:
+    post:
+      tags: [proposed-social]
+      summary: Подготовить ответ агентом (без отправки)
+      x-status: proposed
+      x-tz: "3.4 «Подготовка ответов»"
+      parameters: [{name: comment_id, in: path, required: true, schema: {type: integer}}]
+      responses: {'200': {description: "{reply_text}"}}
+  /api/comments/{comment_id}/reply:
+    post:
+      tags: [proposed-social]
+      summary: Отправить ответ (одобренный человеком либо автоответ при наличии разрешения)
+      x-status: proposed
+      x-tz: "3.4 «Автоотправка регулируется отдельными разрешениями»"
+      parameters: [{name: comment_id, in: path, required: true, schema: {type: integer}}]
+      requestBody: {content: {application/json: {schema: {type: object, required: [text], properties: {text: {type: string}}}}}}
+      responses: {'200': {$ref: '#/components/responses/Ok'}, '403': {$ref: '#/components/responses/Forbidden'}}
+  /api/admin/companies/{company_id}/permissions:
+    parameters: [{$ref: '#/components/parameters/CompanyId'}]
+    get:
+      tags: [proposed-social]
+      summary: Разрешения агента (автоответы, лимиты автодействий, платформы)
+      x-status: proposed
+      x-tz: "3.4, 4 «Индивидуальные правила согласования», 5 «Запрет несанкционированных расходов»"
+      responses: {'200': {description: "{auto_reply: bool, auto_reply_platforms[], auto_publish_rubrics[], max_spend_usd}"}}
+    put:
+      tags: [proposed-social]
+      summary: Изменить разрешения
+      x-status: proposed
+      x-tz: "3.4, 4"
+      requestBody: {content: {application/json: {schema: {type: object}}}}
+      responses: {'200': {$ref: '#/components/responses/Ok'}}
+
+  # ── 3.5 / 4 Правила согласования ──
+  /api/admin/companies/{company_id}/approval-rules:
+    parameters: [{$ref: '#/components/parameters/CompanyId'}]
+    get:
+      tags: [proposed-admin]
+      summary: Правила согласования компании (кто согласует, что требует повторного согласования, таймаут)
+      x-status: proposed
+      x-tz: "4 «Индивидуальные правила согласования», 3.5 «существенные изменения»"
+      responses: {'200': {description: "{approvers[], require_for[], reapprove_on[], timeout_hours}"}}
+    put:
+      tags: [proposed-admin]
+      summary: Изменить правила согласования
+      x-status: proposed
+      x-tz: "4"
+      requestBody: {content: {application/json: {schema: {type: object}}}}
+      responses: {'200': {$ref: '#/components/responses/Ok'}}
+
+  # ── 3.6 Аналитика ──
+  /api/analytics/summary:
+    get:
+      tags: [proposed-analytics]
+      summary: Сводка показателей (охват, просмотры, реакции, ER, подписчики) по периоду
+      x-status: proposed
+      x-tz: "3.6 «Сбор показателей»"
+      parameters: [{$ref: '#/components/parameters/Period'}, {name: platform, in: query, schema: {type: string}}]
+      responses: {'200': {description: "{totals, by_platform, trend[]}"}}
+  /api/analytics/posts:
+    get:
+      tags: [proposed-analytics]
+      summary: Метрики по публикациям
+      x-status: proposed
+      x-tz: "3.6 «Анализ эффективности публикаций»"
+      parameters: [{$ref: '#/components/parameters/Period'}]
+      responses: {'200': {description: "[{post_id, views, likes, comments, shares, er}]"}}
+  /api/analytics/formats:
+    get:
+      tags: [proposed-analytics]
+      summary: Эффективность форматов/рубрик/времени публикации
+      x-status: proposed
+      x-tz: "3.6 «выявление результативных форматов»"
+      responses: {'200': {description: "[{format, avg_er, posts}]"}}
+  /api/analytics/sync:
+    post:
+      tags: [proposed-analytics]
+      summary: Принудительно собрать статистику с площадок
+      x-status: proposed
+      x-tz: "3.6"
+      responses: {'202': {description: Запущено}}
+  /api/analytics/hypotheses:
+    get:
+      tags: [proposed-analytics]
+      summary: Гипотезы по улучшению продвижения
+      x-status: proposed
+      x-tz: "3.6 «Формирование гипотез»"
+      responses: {'200': {description: "[{id, text, metric, status}]"}}
+    post:
+      tags: [proposed-analytics]
+      summary: Сгенерировать гипотезы по данным периода
+      x-status: proposed
+      x-tz: "3.6"
+      responses: {'200': {description: OK}}
+  /api/reports:
+    get:
+      tags: [proposed-analytics]
+      summary: Список отчётов
+      x-status: proposed
+      x-tz: "3.6 «регулярные отчёты», 2 «Получает отчёты»"
+      responses: {'200': {description: "[{id, period, created_at, url}]"}}
+  /api/reports/generate:
+    post:
+      tags: [proposed-analytics]
+      summary: Сформировать отчёт (показатели + выводы + рекомендуемые действия)
+      x-status: proposed
+      x-tz: "3.6"
+      requestBody: {content: {application/json: {schema: {type: object, properties: {period: {type: string}, send_to_telegram: {type: boolean, default: true}}}}}}
+      responses: {'200': {description: "{id, summary, metrics, conclusions[], actions[]}"}}
+  /api/reports/schedule:
+    put:
+      tags: [proposed-analytics]
+      summary: Расписание регулярных отчётов
+      x-status: proposed
+      x-tz: "3.6, 3.1"
+      requestBody: {content: {application/json: {schema: {type: object, properties: {cron: {type: string}, enabled: {type: boolean}}}}}}
+      responses: {'200': {$ref: '#/components/responses/Ok'}}
+  /api/analytics/conversions:
+    post:
+      tags: [proposed-analytics]
+      summary: Загрузить заявки/продажи (JSON/CSV) для оценки влияния маркетинга
+      x-status: proposed
+      x-tz: "3.6 «оценка влияния на заявки и продажи»"
+      requestBody: {content: {application/json: {schema: {type: object, properties: {items: {type: array, items: {type: object, properties: {date: {type: string, format: date}, leads: {type: integer}, sales: {type: integer}, amount: {type: number}, utm: {type: string}}}}}}}}}
+      responses: {'200': {$ref: '#/components/responses/Ok'}}
+  /api/analytics/attribution:
+    get:
+      tags: [proposed-analytics]
+      summary: Влияние публикаций на заявки/продажи
+      x-status: proposed
+      x-tz: "3.6"
+      responses: {'200': {description: "{correlation, top_posts[], notes}"}}
+
+  # ── Админ: доступы, безопасность, LLM, расходы ──
+  /api/admin/companies/{company_id}/users/{user_id}:
+    patch:
+      tags: [proposed-admin]
+      summary: Сменить роль сотрудника
+      x-status: proposed
+      x-tz: "2 «Управляет доступами и полномочиями»"
+      parameters: [{$ref: '#/components/parameters/CompanyId'}, {name: user_id, in: path, required: true, schema: {type: integer}}]
+      requestBody: {content: {application/json: {schema: {type: object, properties: {role: {type: string, enum: [approver, member]}}}}}}
+      responses: {'200': {$ref: '#/components/responses/Ok'}}
+    delete:
+      tags: [proposed-admin]
+      summary: Отвязать сотрудника (отзыв доступа)
+      x-status: proposed
+      x-tz: "5 «Возможность отзыва доступов»"
+      parameters: [{$ref: '#/components/parameters/CompanyId'}, {name: user_id, in: path, required: true, schema: {type: integer}}]
+      responses: {'200': {$ref: '#/components/responses/Ok'}}
+  /api/admin/companies/{company_id}/invites:
+    get:
+      tags: [proposed-admin]
+      summary: Список активных инвайтов
+      x-status: proposed
+      x-tz: "2 «Управляет доступами»"
+      parameters: [{$ref: '#/components/parameters/CompanyId'}]
+      responses: {'200': {description: "[{code, role, used, created_at}]"}}
+  /api/admin/invites/{code}:
+    delete:
+      tags: [proposed-admin]
+      summary: Отозвать инвайт
+      x-status: proposed
+      x-tz: "5 «отзыв доступов»"
+      parameters: [{name: code, in: path, required: true, schema: {type: string}}]
+      responses: {'200': {$ref: '#/components/responses/Ok'}}
+  /api/admin/companies/{company_id}/archive:
+    post:
+      tags: [proposed-admin]
+      summary: Архивировать/приостановить компанию (стоп агента, задач, публикаций)
+      x-status: proposed
+      x-tz: "2, 5 «Запрет несанкционированных публикаций и расходов»"
+      parameters: [{$ref: '#/components/parameters/CompanyId'}]
+      responses: {'200': {$ref: '#/components/responses/Ok'}}
+  /api/admin/companies/{company_id}/skills:
+    parameters: [{$ref: '#/components/parameters/CompanyId'}]
+    get:
+      tags: [proposed-admin]
+      summary: Навыки AI и их включение для компании
+      x-status: proposed
+      x-tz: "5 «Добавление навыков AI»"
+      responses: {'200': {description: "[{key, title, enabled}]"}}
+    put:
+      tags: [proposed-admin]
+      summary: Включить/выключить навыки
+      x-status: proposed
+      x-tz: "5"
+      requestBody: {content: {application/json: {schema: {type: object, properties: {enabled: {type: array, items: {type: string}}}}}}}
+      responses: {'200': {$ref: '#/components/responses/Ok'}}
+  /api/admin/llm:
+    get:
+      tags: [proposed-admin]
+      summary: Текущий LLM-провайдер, модель, статус подключения
+      x-status: proposed
+      x-tz: "1, критерий 12, 5 «Замена AI-модели»"
+      responses: {'200': {description: "{provider: stub|openai|chatgpt_account, model, connected, details}"}}
+    put:
+      tags: [proposed-admin]
+      summary: Сменить провайдера/модель без потери данных
+      x-status: proposed
+      x-tz: "5 «Замена AI-модели»"
+      requestBody: {content: {application/json: {schema: {type: object, properties: {provider: {type: string}, model: {type: string}}}}}}
+      responses: {'200': {$ref: '#/components/responses/Ok'}}
+  /api/admin/llm/chatgpt/connect:
+    post:
+      tags: [proposed-admin]
+      summary: Подключение через аккаунт ChatGPT (device/OAuth flow) — отчёт о способе и ограничениях
+      x-status: proposed
+      x-tz: "1, критерий 12"
+      responses: {'200': {description: "{auth_url | device_code, limitations[]}"}}
+  /api/admin/llm/test:
+    post:
+      tags: [proposed-admin]
+      summary: Тестовый вызов модели (подтверждение критерия 12)
+      x-status: proposed
+      x-tz: "критерий 12"
+      responses: {'200': {description: "{ok, provider, latency_ms, tokens}"}}
+  /api/admin/usage/forecast:
+    get:
+      tags: [proposed-admin]
+      summary: Прогноз месячных затрат на одного AI-маркетолога
+      x-status: proposed
+      x-tz: "8.5 «Оценка месячных затрат»"
+      responses: {'200': {description: "{tokens_per_post, posts_per_month, cost_usd, hosting}"}}
+  /api/admin/audit/export:
+    get:
+      tags: [proposed-admin]
+      summary: Экспорт журнала действий (CSV)
+      x-status: proposed
+      x-tz: "5 «журнал действий»"
+      parameters: [{name: company_id, in: query, schema: {type: integer}}, {$ref: '#/components/parameters/Period'}]
+      responses: {'200': {description: text/csv}}
+  /api/admin/errors:
+    get:
+      tags: [proposed-admin]
+      summary: Ошибки задач и публикаций (для администратора)
+      x-status: proposed
+      x-tz: "5 «Обработка ошибок и уведомление администратора»"
+      responses: {'200': {description: "[{id, company_id, kind, message, created_at, resolved}]"}}
+  /api/usage:
+    get:
+      tags: [proposed-admin]
+      summary: Расход и остаток бюджета компании (для клиента)
+      x-status: proposed
+      x-tz: "2 «Контролирует выполнение и расходы»"
+      responses: {'200': {description: "{month_tokens, monthly_token_limit, posts_today, daily_post_limit}"}}
+  /api/admin/companies/{company_id}/export:
+    get:
+      tags: [proposed-admin]
+      summary: Экспорт данных компании (знания, посты, диалоги) — перенос между моделями/инстансами
+      x-status: proposed
+      x-tz: "5 «Замена AI-модели без потери клиентских данных»"
+      parameters: [{$ref: '#/components/parameters/CompanyId'}]
+      responses: {'200': {description: application/zip}}
+  /ready:
+    get:
+      tags: [service]
+      summary: Readiness — БД, планировщик, Telegram, LLM
+      x-status: proposed
+      x-tz: "5 «Надёжность»"
+      security: []
+      responses: {'200': {description: "{db, scheduler, telegram, llm}"}}
