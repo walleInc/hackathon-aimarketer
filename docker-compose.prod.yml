@@ -32,6 +32,9 @@ services:
         condition: service_healthy
     volumes:
       - media:/data/media
+    # С российского сервера api.telegram.org по DNS-адресу недоступен; этот адрес Telegram API отвечает.
+    extra_hosts:
+      - "api.telegram.org:149.154.167.220"
     mem_limit: 400m
     networks:
       internal: {}

@@ -17,26 +17,42 @@ logging.basicConfig(level=logging.INFO)
 FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 
 
+log = logging.getLogger(__name__)
+
+
+async def _set_webhook_with_retries(attempts: int = 20) -> None:
+    url = f"{settings.public_url.rstrip('/')}/webhook/{settings.webhook_secret}"
+    for attempt in range(1, attempts + 1):
+        try:
+            await tg.bot.set_webhook(url, allowed_updates=["message", "callback_query"])
+            log.info("webhook установлен (попытка %d)", attempt)
+            return
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            log.warning("webhook не установлен (попытка %d/%d): %s", attempt, attempts, e)
+            await asyncio.sleep(min(60, 5 * attempt))
+    log.error("webhook так и не установлен — бот не будет получать сообщения")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
     Path(settings.media_dir).mkdir(parents=True, exist_ok=True)
     scheduler = create_scheduler()
     scheduler.start()
-    polling: asyncio.Task | None = None
+    background: asyncio.Task | None = None
     if tg.bot:
         if settings.public_url:
-            await tg.bot.set_webhook(
-                f"{settings.public_url.rstrip('/')}/webhook/{settings.webhook_secret}",
-                allowed_updates=["message", "callback_query"],
-            )
+            # Telegram может быть временно недоступен: сервис всё равно стартует, webhook ставится с повторами
+            background = asyncio.create_task(_set_webhook_with_retries())
         else:  # локальная разработка без публичного адреса
             await tg.bot.delete_webhook()
-            polling = asyncio.create_task(tg.dp.start_polling(tg.bot, handle_signals=False))
+            background = asyncio.create_task(tg.dp.start_polling(tg.bot, handle_signals=False))
     yield
     scheduler.shutdown(wait=False)
-    if polling:
-        polling.cancel()
+    if background:
+        background.cancel()
     if tg.bot:
         await tg.bot.session.close()
 
