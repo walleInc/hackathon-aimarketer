@@ -171,7 +171,13 @@ async def handle_message(session: AsyncSession, company_id: int, user: User | No
             select(Message).where(Message.company_id == company_id).order_by(Message.id.desc()).limit(HISTORY_LIMIT)
         )
     ).scalars().all()
-    messages = [{"role": m.role, "content": m.content} for m in reversed(history)]
+    # История подаётся в том же JSON-формате, что и требуемый ответ: иначе модель копирует прежние
+    # ответы обычным текстом и перестаёт выполнять действия.
+    messages = [
+        {"role": m.role, "content": json.dumps({"action": "reply", "reply": m.content}, ensure_ascii=False)
+         if m.role == "assistant" else m.content}
+        for m in reversed(history)
+    ]
 
     res = await llm.complete(await _system_prompt(session, company_id), messages, json_mode=True)
     await _record_llm(session, company_id, res)
@@ -182,7 +188,9 @@ async def handle_message(session: AsyncSession, company_id: int, user: User | No
         (data.get("action") == "create_post" and data.get("post_text")) or data.get("action") == "schedule_task"
     ):
         forced = await llm.complete(
-            await _system_prompt(session, company_id), messages + [{"role": "user", "content": FORCE_POST}], json_mode=True
+            await _system_prompt(session, company_id),
+            [{"role": "user", "content": f"{text}\n\n{FORCE_POST}"}],  # без истории: прежние ответы-беседы сбивают модель
+            json_mode=True,
         )
         await _record_llm(session, company_id, forced)
         retry = _parse(forced.text)
