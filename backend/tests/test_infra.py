@@ -134,7 +134,7 @@ async def test_context_file_rejects_bad_type_and_path_traversal(client, env, s3)
 
 
 async def test_context_files_require_admin(client, env, s3):
-    r = await client.get(f"/api/admin/companies/{env['a']}/files", headers=as_user(100))
+    r = await client.get(f"/api/admin/companies/{env['a']}/files", headers=as_user(101))  # рядовой сотрудник
     assert r.status_code == 403
 
 

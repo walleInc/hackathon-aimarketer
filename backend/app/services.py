@@ -77,6 +77,7 @@ async def decide(session: AsyncSession, post: Post, user: User, decision: str, c
     elif target is S.APPROVED:  # отложенная публикация: задача сработает ровно в назначенное время
         delay = int((post.scheduled_at - utcnow()).total_seconds() * 1000)
         await jobs.enqueue("publishing", "publish", {"post_id": post.id}, delay_ms=delay, attempts=4, backoff_ms=60_000)
+    await _notify_author(session, post, user, decision, comment)
     return post
 
 

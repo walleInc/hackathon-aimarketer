@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import branding, context_files, handlers, jobs, limits, services, storage
-from ..auth import Ctx, require_admin
+from ..auth import Ctx, require_admin, require_manager
 from ..config import settings
 from ..db import get_session, utcnow
 from ..media import media_path, new_media_file
