@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .. import branding, services
+from .. import branding, limits, services
 from ..auth import Ctx, require_admin
 from ..config import settings
 from ..db import get_session, utcnow
@@ -248,11 +248,18 @@ async def stats(session: AsyncSession = Depends(get_session)):
             select(SocialAccount.company_id, func.count()).where(SocialAccount.active.is_(True)).group_by(SocialAccount.company_id)
         )).all()
     )
-    tokens = dict((await session.execute(select(UsageCost.company_id, func.sum(UsageCost.tokens)).group_by(UsageCost.company_id))).all())
+    usage = (await session.execute(
+        select(UsageCost.company_id, func.sum(UsageCost.tokens), func.sum(UsageCost.cost_usd)).group_by(UsageCost.company_id)
+    )).all()
+    tokens = {cid: t for cid, t, _ in usage}
+    costs = {cid: c for cid, _, c in usage}
+    month_tokens = {c.id: await limits.tokens_this_month(session, c.id) for c in companies}
     return [
         {
             "id": c.id, "name": c.name, "posts": by_company.get(c.id, {}), "users": users.get(c.id, 0),
             "channels": channels.get(c.id, 0), "tokens": int(tokens.get(c.id) or 0),
+            "cost_usd": round(float(costs.get(c.id) or 0), 4),
+            "month_tokens": month_tokens[c.id], "monthly_token_limit": c.monthly_token_limit,
         }
         for c in companies
     ]

@@ -51,6 +51,11 @@ h3 { margin: 0 0 10px; font-size: 16px; }
 .stats { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; color: var(--muted); }
 .stats b { color: var(--ink); }
 
+.budget { margin-top: 10px; }
+.budget small { color: var(--muted); font-size: 11px; }
+.budgetBar { height: 6px; background: var(--line); border-radius: 99px; overflow: hidden; margin-bottom: 4px; }
+.budgetBar span { display: block; height: 100%; background: var(--brand); }
+.budgetBar span.over { background: var(--bad); }
 .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #b8c3c7; }
 .dot.ok { background: var(--ok); } .dot.warn { background: var(--warn); } .dot.off { background: #b8c3c7; }
 .check { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); cursor: pointer; }

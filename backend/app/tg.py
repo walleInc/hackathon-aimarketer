@@ -7,11 +7,11 @@ from aiogram.types import (
 )
 from sqlalchemy import select
 
-from . import agent, services
+from . import agent, limits, services
 from .config import settings
 from .db import SessionLocal
 from .media import media_path
-from .models import Invite, Post, User
+from .models import Company, Invite, Post, User
 from .workflow import InvalidTransition
 
 log = logging.getLogger(__name__)
@@ -133,6 +133,11 @@ async def on_decision(cb: CallbackQuery) -> None:
             return
         try:
             if action == "revise":
+                try:  # бюджет проверяем до смены статуса, чтобы пост не застрял «на доработке»
+                    await limits.check_token_budget(session, await session.get(Company, post.company_id))
+                except limits.LimitExceeded as e:
+                    await cb.answer(str(e), show_alert=True)
+                    return
                 await services.decide(session, post, user, "revise")
                 user.state = f"revise:{post.id}"
                 await session.commit()
@@ -167,7 +172,13 @@ async def on_text(message: Message) -> None:
             await session.commit()
             post = await session.get(Post, post_id)
             if post and post.company_id == user.company_id:
-                await agent.revise_post(session, post, message.text, user.id)
+                try:
+                    await agent.revise_post(session, post, message.text, user.id)
+                except limits.LimitExceeded as e:
+                    user.state = f"revise:{post_id}"  # можно повторить комментарий позже
+                    await session.commit()
+                    await message.answer(str(e))
+                    return
                 await message.answer("Доработал и отправил на повторное согласование.")
                 return
         await message.bot.send_chat_action(message.chat.id, "typing")

@@ -35,6 +35,7 @@ function Dashboard({ open }: { open: (id: number) => void }) {
 
   const sum = (key: string) => (stats ?? []).reduce((a, s) => a + (s.posts[key] ?? 0), 0);
   const tokens = (stats ?? []).reduce((a, s) => a + s.tokens, 0);
+  const cost = (stats ?? []).reduce((a, s) => a + s.cost_usd, 0);
 
   return (
     <>
@@ -43,7 +44,8 @@ function Dashboard({ open }: { open: (id: number) => void }) {
         <Kpi label="Компаний" value={stats?.length ?? "—"} />
         <Kpi label="Опубликовано" value={sum("published")} />
         <Kpi label="Ждут согласования" value={sum("pending_approval")} hint={sum("failed") ? `${sum("failed")} с ошибкой` : undefined} />
-        <Kpi label="Токенов LLM" value={tokens.toLocaleString("ru-RU")} />
+        <Kpi label="Токенов LLM" value={tokens.toLocaleString("ru-RU")}
+          hint={cost > 0 ? `≈ $${cost.toFixed(4)} по тарифу модели` : "стоимость не задана (LLM_PRICE_*)"} />
       </div>
 
       <div className="sectionHead">
@@ -85,6 +87,11 @@ function CompanyCard({ s, open }: { s: Stat; open: () => void }) {
         <span><b>{s.posts.pending_approval ?? 0}</b> ждут</span>
         <span><b>{s.users}</b> в команде</span>
         <span><b>{s.channels}</b> каналов</span>
+      </div>
+      <div className="budget" title="Токены за текущий месяц / месячный бюджет">
+        <div className="budgetBar"><span style={{ width: `${Math.min(100, (s.month_tokens / s.monthly_token_limit) * 100)}%` }}
+          className={s.month_tokens >= s.monthly_token_limit ? "over" : ""} /></div>
+        <small>{s.month_tokens.toLocaleString("ru-RU")} из {s.monthly_token_limit.toLocaleString("ru-RU")} токенов в месяц{s.cost_usd > 0 ? ` · $${s.cost_usd.toFixed(4)}` : ""}</small>
       </div>
       {!ready && <div className="hint">{s.channels === 0 ? "Не подключён канал" : "Нет сотрудников"}</div>}
     </div>

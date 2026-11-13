@@ -66,6 +66,19 @@ async def _record_usage(session: AsyncSession, company_id: int, kind: str, token
     await session.commit()
 
 
+def llm_cost_usd(res) -> float:
+    """Стоимость вызова: цена от провайдера, иначе по тарифу из настроек (вход и выход считаются по-разному)."""
+    if res.cost_usd:
+        return res.cost_usd
+    return (
+        res.prompt_tokens * settings.llm_price_input_per_m + res.completion_tokens * settings.llm_price_output_per_m
+    ) / 1_000_000
+
+
+async def _record_llm(session: AsyncSession, company_id: int, res) -> None:
+    await _record_usage(session, company_id, "llm", res.tokens, llm_cost_usd(res))
+
+
 def _strip_fences(text: str) -> str:
     """Некоторые модели оборачивают ответ в ```json ... ```."""
     t = text.strip()
@@ -94,7 +107,7 @@ async def brand_check(session: AsyncSession, company: Company, text: str) -> tup
         [{"role": "user", "content": BRAND_CHECK.format(text=text)}],
         json_mode=True,
     )
-    await _record_usage(session, company.id, "llm", res.tokens, res.cost_usd)
+    await _record_llm(session, company.id, res)
     data = _parse(res.text)
     if data.get("ok", True):
         return text, "Проверка бренда: замечаний нет"
@@ -136,7 +149,7 @@ async def handle_message(session: AsyncSession, company_id: int, user: User | No
     messages = [{"role": m.role, "content": m.content} for m in reversed(history)]
 
     res = await llm.complete(await _system_prompt(session, company_id), messages, json_mode=True)
-    await _record_usage(session, company_id, "llm", res.tokens, res.cost_usd)
+    await _record_llm(session, company_id, res)
     data = _parse(res.text)
 
     post_id = None
@@ -168,13 +181,14 @@ async def handle_message(session: AsyncSession, company_id: int, user: User | No
 async def revise_post(session: AsyncSession, post: Post, comment: str, user_id: int | None = None) -> Post:
     """Переписывает текст по комментарию согласующего, проверяет бренд и снова отправляет на согласование."""
     company = await session.get(Company, post.company_id)
+    await limits.check_token_budget(session, company)  # LimitExceeded обрабатывает вызывающий код
     prompt = (
         f"Перепиши пост по комментарию, сохрани факты и стиль бренда.\n\nПост:\n{post.text}\n\n"
         f"Комментарий: {comment}\n\nВерни только новый текст поста."
     )
     system = await _system_prompt(session, post.company_id, json_mode=False)
     res = await get_llm().complete(system, [{"role": "user", "content": prompt}])
-    await _record_usage(session, post.company_id, "llm", res.tokens, res.cost_usd)
+    await _record_llm(session, post.company_id, res)
     text, notes = await brand_check(session, company, _strip_fences(res.text))
     post.check_notes = notes
     return await services.edit_post_text(session, post, text, user_id)

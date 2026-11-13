@@ -16,6 +16,7 @@ export type Company = {
 export type Asset = { id: number; kind: string; filename: string; url: string };
 export type Stat = {
   id: number; name: string; posts: Record<string, number>; users: number; channels: number; tokens: number;
+  cost_usd: number; month_tokens: number; monthly_token_limit: number;
 };
 export type Doc = { id: number; title: string; content: string; size: number; updated_at: string | null };
 export type Social = { id: number; platform: string; channel_id: string; active: boolean };

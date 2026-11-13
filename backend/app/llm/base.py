@@ -5,8 +5,10 @@ from typing import Protocol
 @dataclass
 class LLMResult:
     text: str
-    tokens: int = 0
-    cost_usd: float = 0.0
+    tokens: int = 0  # всего (вход + выход), как вернул провайдер
+    cost_usd: float = 0.0  # если провайдер сам отдаёт цену; иначе считается по тарифу из настроек
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
 
 
 class LLMProvider(Protocol):

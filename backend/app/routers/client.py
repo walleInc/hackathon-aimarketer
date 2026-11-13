@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .. import agent, services
+from .. import agent, limits, services
 from ..auth import Ctx, get_ctx
 from ..db import get_session
 from ..models import Company, Post, Task
@@ -61,6 +61,12 @@ async def decide(post_id: int, body: DecisionIn, ctx: Ctx = Depends(get_ctx), se
     if not ctx.can_approve:
         raise HTTPException(403, "Согласовывать может только ответственный сотрудник")
     post = await _post(session, ctx, post_id)
+    if body.decision == "revise" and body.comment:
+        # бюджет проверяем ДО смены статуса, чтобы пост не застрял в «на доработке»
+        try:
+            await limits.check_token_budget(session, await session.get(Company, post.company_id))
+        except limits.LimitExceeded as e:
+            raise HTTPException(429, str(e))
     try:
         post = await services.decide(session, post, ctx.user, body.decision, body.comment)
         if body.decision == "revise" and body.comment:

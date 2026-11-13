@@ -41,6 +41,40 @@ async def test_token_budget_blocks_agent(client, env):
         assert (await s.execute(select(Post))).scalars().all() == []  # ни поста, ни вызова модели
 
 
+async def test_revise_blocked_when_budget_exhausted(client, env):
+    r = (await client.post("/api/agent/message", headers=as_user(100), json={"text": "Напиши пост"})).json()
+    post_id = r["post_id"]
+    await client.put(f"/api/admin/companies/{env['a']}", headers=ADMIN, json={"monthly_token_limit": 100})
+    async with SessionLocal() as s:
+        s.add(UsageCost(company_id=env["a"], kind="llm", tokens=500))
+        await s.commit()
+    resp = await client.post(f"/api/posts/{post_id}/decision", headers=as_user(100), json={"decision": "revise", "comment": "короче"})
+    assert resp.status_code == 429 and "бюджет" in resp.json()["detail"].lower()
+    # пост не застрял в «на доработке»
+    assert (await client.get(f"/api/posts/{post_id}", headers=as_user(100))).json()["status"] == "pending_approval"
+
+
+async def test_cost_is_computed_from_tariff(env, monkeypatch):
+    from app import agent
+    from app.config import settings
+    from app.llm.base import LLMResult
+
+    monkeypatch.setattr(settings, "llm_price_input_per_m", 0.30)
+    monkeypatch.setattr(settings, "llm_price_output_per_m", 2.00)
+    res = LLMResult(text="x", tokens=1_500_000, prompt_tokens=1_000_000, completion_tokens=500_000)
+    assert abs(agent.llm_cost_usd(res) - (0.30 + 1.00)) < 1e-9  # 1М входа по 0.30 + 0.5М выхода по 2.00
+    async with SessionLocal() as s:
+        await agent._record_llm(s, env["a"], res)
+        row = (await s.execute(select(UsageCost).where(UsageCost.company_id == env["a"]))).scalars().one()
+    assert row.tokens == 1_500_000 and abs(row.cost_usd - 1.30) < 1e-9
+    assert agent.llm_cost_usd(LLMResult(text="x", cost_usd=0.5)) == 0.5  # цена от провайдера приоритетнее
+
+
+async def test_stats_report_budget_and_cost(client, env):
+    stats = {s["id"]: s for s in (await client.get("/api/admin/stats", headers=ADMIN)).json()}
+    assert {"cost_usd", "month_tokens", "monthly_token_limit"} <= set(stats[env["a"]])
+
+
 async def test_post_gets_branded_image(client, env):
     r = (await client.post("/api/agent/message", headers=as_user(100), json={"text": "Напиши пост"})).json()
     post = (await client.get(f"/api/posts/{r['post_id']}", headers=as_user(100))).json()

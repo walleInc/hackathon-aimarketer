@@ -31,8 +31,13 @@ class OpenAIProvider:
             resp = await self.client.chat.completions.create(
                 model=settings.openai_model, messages=msgs, max_tokens=MAX_TOKENS
             )
-        tokens = resp.usage.total_tokens if resp.usage else 0
-        return LLMResult(text=resp.choices[0].message.content or "", tokens=tokens)
+        u = resp.usage
+        return LLMResult(
+            text=resp.choices[0].message.content or "",
+            tokens=(u.total_tokens or 0) if u else 0,
+            prompt_tokens=(u.prompt_tokens or 0) if u else 0,
+            completion_tokens=(u.completion_tokens or 0) if u else 0,
+        )
 
     async def generate_image(self, prompt: str) -> str | None:
         try:

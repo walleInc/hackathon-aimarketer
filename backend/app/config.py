@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     openai_base_url: str = ""  # любой OpenAI-совместимый API: OpenRouter, DeepSeek, Groq, Ollama…
     openai_model: str = "gpt-4o-mini"
     openai_image_model: str = "gpt-image-1"
+    # Тариф модели, $ за 1 млн токенов (0 = стоимость не считается). Для Llama 3.3 70B в Cloudflare ≈ 0.29 / 2.25.
+    llm_price_input_per_m: float = 0.0
+    llm_price_output_per_m: float = 0.0
 
     ai_images: bool = False  # генерировать картинки моделью (нужен провайдер с поддержкой изображений)
     media_dir: str = "media"
