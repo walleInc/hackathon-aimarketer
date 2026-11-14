@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .. import branding, context_files, handlers, jobs, limits, services, storage
+from .. import branding, context_files, handlers, jobs, limits, platforms, services, storage
 from ..auth import Ctx, require_admin, require_manager
 from ..config import settings
 from ..db import get_session, utcnow
@@ -225,6 +225,8 @@ class SocialIn(BaseModel):
 @router.post("/companies/{company_id}/social")
 async def add_social(company_id: int, body: SocialIn, ctx: Ctx = Depends(require_manager), session: AsyncSession = Depends(get_session)):
     await _company(session, company_id)
+    if body.platform not in platforms.REGISTRY:
+        raise HTTPException(400, f"Неизвестная площадка: {body.platform}. Доступны: {', '.join(sorted(platforms.REGISTRY))}")
     acc = SocialAccount(
         company_id=company_id, platform=body.platform, channel_id=body.channel_id, token_encrypted=encrypt(body.token)
     )

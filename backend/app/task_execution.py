@@ -118,9 +118,11 @@ async def execute_run(run_id: int):
             if task.kind == "post":
                 post = (await session.execute(select(Post).where(Post.task_run_id == run.id))).scalar_one_or_none()
                 if post is None:
+                    platform = agent.pick_platform(
+                        (result or {}).get("platform"), await agent.connected_platforms(session, task.company_id))
                     post = Post(company_id=task.company_id, task_run_id=run.id, created_by=task.created_by,
                                 scheduled_at=run.scheduled_for if task.schedule_kind != "legacy" and not task.manual else None,
-                                platform="telegram", **result)
+                                platform=platform, **result)
                     session.add(post)
                     await session.flush()
                 run.post_id, run.result = post.id, "Пост подготовлен и отправлен на согласование"

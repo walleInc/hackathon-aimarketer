@@ -211,7 +211,9 @@ async def _publish_post(session: AsyncSession, post_id: int, notify: bool) -> Po
         post.external_id = result.external_id if isinstance(result, PublishResult) else result
         post.published_channel_id = result.channel_id if isinstance(result, PublishResult) else account.channel_id
         post.published_at = utcnow()
-        post.status, post.error = S.PUBLISHED.value, ""
+        post.status = S.PUBLISHED.value
+        # Предупреждение площадки (например, пост ушёл без картинки) показываем в кабинете
+        post.error = result.warning if isinstance(result, PublishResult) else ""
         await session.commit()
         await audit(session, post.company_id, None, "post.published", f"post={post.id} ext={post.external_id}")
     except Exception as e:

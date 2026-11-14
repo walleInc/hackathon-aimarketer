@@ -21,15 +21,35 @@ export const brandSchema = z.object({
       'Введите HEX-цвета через запятую',
     ),
 });
-export const channelSchema = z.object({
-  channel: z
-    .string()
-    .trim()
-    .regex(
-      /^(@[a-zA-Z0-9_]{5,}|-100\d+)$/,
-      'Укажите @username или ID вида -100…',
-    ),
-});
+export const channelSchema = z
+  .object({
+    platform: z.enum(['telegram', 'vk']),
+    channel: z.string().trim().min(1, 'Заполните поле'),
+    token: z.string().trim(),
+  })
+  .superRefine((values, ctx) => {
+    if (values.platform === 'telegram') {
+      if (!/^(@[a-zA-Z0-9_]{5,}|-100\d+)$/.test(values.channel)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['channel'],
+          message: 'Укажите @username или ID вида -100…',
+        });
+      }
+      return;
+    }
+    if (
+      !/^(-?\d+|club\d+|public\d+|(https?:\/\/)?(vk\.com\/)?[a-zA-Z0-9_.]{4,32})\/?$/.test(
+        values.channel,
+      )
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['channel'],
+        message: 'Укажите ID сообщества, короткое имя или ссылку vk.com/…',
+      });
+    }
+  });
 
 export const revisionSchema = z.object({
   comment: z.string().trim().min(1, 'Опишите необходимые изменения'),

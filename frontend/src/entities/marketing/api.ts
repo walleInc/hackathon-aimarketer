@@ -168,11 +168,8 @@ export const api = {
     return res.json();
   },
   socials: (id: number) => req<Social[]>('GET', `${A}/companies/${id}/social`),
-  addSocial: (id: number, channel_id: string) =>
-    req('POST', `${A}/companies/${id}/social`, {
-      platform: 'telegram',
-      channel_id,
-    }),
+  addSocial: (id: number, body: { platform: string; channel_id: string; token?: string }) =>
+    req('POST', `${A}/companies/${id}/social`, body),
   revokeSocial: (accountId: number) =>
     req('DELETE', `${A}/social/${accountId}`),
   setRole: (cid: number, userId: number, role: string) =>

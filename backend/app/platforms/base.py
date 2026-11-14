@@ -8,6 +8,7 @@ from ..models import SocialAccount
 class PublishResult:
     external_id: str
     channel_id: str
+    warning: str = ""  # публикация удалась, но с потерей (например, фото не принято площадкой)
 
 
 class Platform(Protocol):
