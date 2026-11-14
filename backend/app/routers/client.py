@@ -1,4 +1,5 @@
 from typing import Literal
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
@@ -19,7 +20,7 @@ def post_out(p: Post) -> dict:
     return {
         "id": p.id, "platform": p.platform, "text": p.text, "image_url": p.image_url, "status": p.status,
         "version": p.version, "scheduled_at": p.scheduled_at, "error": p.error, "created_at": p.created_at,
-        "check_notes": p.check_notes,
+        "check_notes": p.check_notes, "needs_reschedule": p.needs_reschedule,
     }
 
 
@@ -153,25 +154,36 @@ async def agent_message(body: MessageIn, ctx: Ctx = Depends(get_ctx), session: A
     return {"reply": res.reply, "post_id": res.post_id}
 
 
-class TaskIn(BaseModel):
-    prompt: str
-    interval_minutes: int = 1440
+
+class RescheduleIn(BaseModel):
+    scheduled_at: datetime
+    version: int = Field(ge=1)
 
 
-@router.get("/tasks")
-async def list_tasks(ctx: Ctx = Depends(get_ctx), session: AsyncSession = Depends(get_session)):
-    rows = (await session.execute(select(Task).where(Task.company_id == ctx.require_company()))).scalars()
-    return [
-        {"id": t.id, "prompt": t.prompt, "interval_minutes": t.interval_minutes, "active": t.active, "last_run": t.last_run}
-        for t in rows
-    ]
-
-
-@router.post("/tasks")
-async def create_task(body: TaskIn, ctx: Ctx = Depends(get_ctx), session: AsyncSession = Depends(get_session)):
-    ctx.require_creator()
-    task = Task(company_id=ctx.require_company(), prompt=body.prompt, interval_minutes=max(body.interval_minutes, 1))
-    session.add(task)
+@router.post("/posts/{post_id}/reschedule")
+async def reschedule(post_id: int, body: RescheduleIn, ctx: Ctx = Depends(get_ctx), session: AsyncSession = Depends(get_session)):
+    from datetime import timezone
+    from sqlalchemy import update
+    from ..db import utcnow
+    from .. import jobs
+    if not ctx.can_approve:
+        raise HTTPException(403, "Переносить публикацию может только администратор компании")
+    post = await _post(session, ctx, post_id)
+    if post.task_run_id is None or post.status not in ("approved", "pending_approval", "revision", "failed"):
+        raise HTTPException(409, "Этот материал нельзя перенести")
+    if body.scheduled_at.tzinfo is None:
+        raise HTTPException(422, "Укажите время с часовым поясом")
+    when = body.scheduled_at.astimezone(timezone.utc).replace(tzinfo=None)
+    if when <= utcnow():
+        raise HTTPException(422, "Укажите будущее время")
+    claimed = await session.execute(update(Post).where(Post.id == post.id, Post.version == body.version, Post.status == post.status)
+                                    .values(scheduled_at=when, needs_reschedule=False, version=Post.version + 1))
+    if claimed.rowcount != 1:
+        await session.rollback()
+        raise HTTPException(409, "Материал изменён, обновите страницу")
     await session.commit()
-    await services.audit(session, task.company_id, ctx.user.id, "task.created", f"task={task.id}")
-    return {"id": task.id}
+    await session.refresh(post)
+    if post.status == "approved":
+        await jobs.enqueue("publishing", "publish", {"post_id": post.id}, delay_ms=int((when - utcnow()).total_seconds() * 1000))
+    await services.audit(session, post.company_id, ctx.user.id, "post.rescheduled", f"post={post.id} at={when}")
+    return post_out(post)

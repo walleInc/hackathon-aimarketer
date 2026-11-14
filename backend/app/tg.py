@@ -219,7 +219,9 @@ async def on_decision(cb: CallbackQuery) -> None:
             else:
                 post = await services.decide(session, post, user, action, version=int(version_s))
                 label = {"approved": "✅ Одобрено", "rejected": "❌ Отклонено"}.get(post.status)
-                if post.status == "published":
+                if post.needs_reschedule:
+                    label = "✅ Одобрено. Время публикации прошло — выберите новое время в miniapp"
+                elif post.status == "published":
                     label = "✅ Одобрено и опубликовано"
                 elif post.status == "failed":
                     label = f"⚠️ Одобрено, но публикация не удалась: {post.error}"

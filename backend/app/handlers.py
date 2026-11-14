@@ -44,9 +44,15 @@ async def publish(data: dict, ctx: JobCtx):
             await session.commit()
         if post.status != PostStatus.APPROVED.value:
             return {"skipped": post.status}  # уже опубликован, отклонён или правится
+        if post.needs_reschedule:
+            return {"skipped": "requires rescheduling"}
         if post.scheduled_at and post.scheduled_at > utcnow():
             raise RetryLater(int((post.scheduled_at - utcnow()).total_seconds() * 1000))
         result = await services.publish_post(session, post_id, notify=ctx.is_last)
+        if result is None:
+            await session.refresh(post)
+            if post.needs_reschedule:
+                return {"skipped": "missed publication time"}
         if result is None:  # пост публикует другой воркер: вернёмся и проверим итог (успех — пропустим, сбой — повторим)
             raise RetryLater(5000)
         if result.status == PostStatus.FAILED.value and not ctx.is_last:
@@ -65,21 +71,15 @@ async def tick(data: dict, ctx: JobCtx):
 
 @handler("ai-generation", "run_task")
 async def run_task(data: dict, ctx: JobCtx):
-    """Регулярная задача: агент готовит материал и отправляет на согласование."""
-    company_id = int(data["company_id"])
-    async with org_slot("ai-generation", company_id):
-        async with SessionLocal() as session:
-            task = await session.get(Task, int(data["task_id"]))
-            if task is None or not task.active:
-                return {"skipped": True}
-            try:
-                await agent.handle_message(session, company_id, None, f"Регулярная задача: {task.prompt}")
-                await services.audit(session, company_id, None, "task.run", f"task={task.id}")
-            except Exception as e:
-                log.exception("task %s failed", task.id)
-                if ctx.is_last:
-                    await services.notify_admins(f"Задача {task.id} (компания {company_id}) завершилась ошибкой: {e}")
-                raise
+    from .task_execution import execute_run
+    if "run_id" in data:
+        return await execute_run(int(data["run_id"]))
+    # Jobs queued by the previous application version remain executable.
+    async with SessionLocal() as session:
+        task = await session.get(Task, int(data["task_id"]))
+        if task is None or not task.active or task.deleted:
+            return {"skipped": True}
+        await agent.handle_message(session, task.company_id, None, f"Подготовь пост сейчас: {task.prompt}")
 
 
 # ---------- document-processing ----------

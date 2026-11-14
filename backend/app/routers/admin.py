@@ -15,6 +15,7 @@ from ..db import get_session, utcnow
 from ..media import media_path, new_media_file
 from ..models import BrandAsset, AuditLog, Company, Invite, KnowledgeDoc, Post, SocialAccount, Task, UsageCost, User
 from ..security import encrypt
+from .tasks import TaskToggle
 
 # Доступ: технический администратор (ADMIN_IDS) — все компании; администратор компании — только своя
 # (проверяется в require_manager по company_id из пути и в _own для операций по id сущности).
@@ -235,7 +236,7 @@ async def add_social(company_id: int, body: SocialIn, ctx: Ctx = Depends(require
 
 @router.get("/companies/{company_id}/social")
 async def list_social(company_id: int, session: AsyncSession = Depends(get_session)):
-    rows = (await session.execute(select(SocialAccount).where(SocialAccount.company_id == company_id))).scalars()
+    rows = (await session.execute(select(SocialAccount).where(SocialAccount.company_id == company_id, SocialAccount.analytics_only.is_(False)))).scalars()
     # токены наружу не отдаются никогда
     return [{"id": a.id, "platform": a.platform, "channel_id": a.channel_id, "active": a.active} for a in rows]
 
@@ -266,7 +267,7 @@ async def stats(ctx: Ctx = Depends(require_manager), session: AsyncSession = Dep
     users = dict((await session.execute(select(User.company_id, func.count()).group_by(User.company_id))).all())
     channels = dict(
         (await session.execute(
-            select(SocialAccount.company_id, func.count()).where(SocialAccount.active.is_(True)).group_by(SocialAccount.company_id)
+            select(SocialAccount.company_id, func.count()).where(SocialAccount.active.is_(True), SocialAccount.analytics_only.is_(False)).group_by(SocialAccount.company_id)
         )).all()
     )
     usage = (await session.execute(
@@ -331,34 +332,29 @@ async def company_posts(company_id: int, session: AsyncSession = Depends(get_ses
     rows = (await session.execute(select(Post).where(Post.company_id == company_id).order_by(Post.id.desc()).limit(50))).scalars()
     return [
         {"id": p.id, "platform": p.platform, "text": p.text, "status": p.status, "version": p.version,
-         "error": p.error, "created_at": p.created_at, "image_url": p.image_url, "check_notes": p.check_notes}
+         "error": p.error, "created_at": p.created_at, "image_url": p.image_url, "check_notes": p.check_notes,
+         "scheduled_at": p.scheduled_at, "needs_reschedule": p.needs_reschedule}
         for p in rows
     ]
 
 
 @router.get("/companies/{company_id}/tasks")
 async def company_tasks(company_id: int, session: AsyncSession = Depends(get_session)):
-    rows = (await session.execute(select(Task).where(Task.company_id == company_id))).scalars()
-    return [
-        {"id": t.id, "prompt": t.prompt, "interval_minutes": t.interval_minutes, "active": t.active, "last_run": t.last_run}
-        for t in rows
-    ]
-
-
-class TaskToggle(BaseModel):
-    active: bool
+    from .tasks import tasks_out
+    rows = (await session.execute(select(Task).where(Task.company_id == company_id, Task.deleted.is_(False)).order_by(Task.id.desc()))).scalars().all()
+    return await tasks_out(session, rows)
 
 
 @router.patch("/tasks/{task_id}")
-async def toggle_task(task_id: int, body: TaskToggle, ctx: Ctx = Depends(require_manager), session: AsyncSession = Depends(get_session)):
-    task = await session.get(Task, task_id)
-    if task is None:
-        raise HTTPException(404)
-    _own(ctx, task.company_id)
-    task.active = body.active
-    await session.commit()
-    await services.audit(session, task.company_id, ctx.user.id, "task.toggled", f"task={task.id} active={body.active}")
-    return {"ok": True}
+async def toggle_task(task_id: int, body: "TaskToggle", ctx: Ctx = Depends(require_manager), session: AsyncSession = Depends(get_session)):
+    from .tasks import toggle_task as toggle
+    return await toggle(task_id, body, ctx, session)
+
+
+@router.delete("/tasks/{task_id}")
+async def delete_task(task_id: int, ctx: Ctx = Depends(require_manager), session: AsyncSession = Depends(get_session)):
+    from .tasks import delete_task as delete
+    return await delete(task_id, ctx, session)
 
 
 @router.delete("/knowledge/{doc_id}")

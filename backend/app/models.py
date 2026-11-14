@@ -1,7 +1,7 @@
 """Модели БД. Каждая клиентская таблица содержит company_id — это основа изоляции данных."""
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text, Float
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text, Float, UniqueConstraint, Index
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .db import Base, utcnow
@@ -74,6 +74,7 @@ class SocialAccount(Base):
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
     platform: Mapped[str] = mapped_column(String(20))  # telegram | vk | max
     channel_id: Mapped[str] = mapped_column(String(200))
+    analytics_only: Mapped[bool] = mapped_column(Boolean, default=False)
     token_encrypted: Mapped[str] = mapped_column(Text, default="")  # пусто = токен основного бота
     active: Mapped[bool] = mapped_column(Boolean, default=True)
 
@@ -95,14 +96,56 @@ class Task(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
-    prompt: Mapped[str] = mapped_column(Text)
+    prompt: Mapped[str] = mapped_column(Text, default="")
     interval_minutes: Mapped[int] = mapped_column(Integer, default=1440)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     last_run: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    kind: Mapped[str] = mapped_column(String(30), default="post")
+    schedule_kind: Mapped[str] = mapped_column(String(20), default="legacy")
+    timezone: Mapped[str] = mapped_column(String(80), default="UTC")
+    local_time: Mapped[str] = mapped_column(String(5), default="09:00")
+    weekdays: Mapped[str] = mapped_column(String(30), default="")
+    next_run: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    channel_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    deleted: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class TaskRun(Base):
+    __tablename__ = "task_runs"
+    __table_args__ = (UniqueConstraint("task_id", "scheduled_for"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"), index=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    scheduled_for: Mapped[datetime] = mapped_column(DateTime)
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    lease_token: Mapped[str] = mapped_column(String(40), default="")
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    queued_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    result: Mapped[str] = mapped_column(Text, default="")
+    sources: Mapped[str] = mapped_column(Text, default="[]")
+    metrics: Mapped[str] = mapped_column(Text, default="{}")
+    error: Mapped[str] = mapped_column(Text, default="")
+    post_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class TelegramConnection(Base):
+    __tablename__ = "telegram_connections"
+
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), primary_key=True)
+    session_encrypted: Mapped[str] = mapped_column(Text, default="")
+    pending_encrypted: Mapped[str] = mapped_column(Text, default="")
+    auth_owner: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
 class Post(Base):
     __tablename__ = "posts"
+    __table_args__ = (Index("uq_posts_task_run_id", "task_run_id", unique=True),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
@@ -112,6 +155,8 @@ class Post(Base):
     status: Mapped[str] = mapped_column(String(20), default="draft", index=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
     scheduled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    needs_reschedule: Mapped[bool] = mapped_column(Boolean, default=False)
+    task_run_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     external_id: Mapped[str] = mapped_column(String(200), default="")
     error: Mapped[str] = mapped_column(Text, default="")
     check_notes: Mapped[str] = mapped_column(Text, default="")  # результат проверки на соответствие бренду

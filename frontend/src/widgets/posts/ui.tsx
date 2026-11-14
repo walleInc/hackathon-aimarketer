@@ -22,10 +22,10 @@ export function Posts({ id, canDecide }: { id: number; canDecide: boolean }) {
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState<number | null>(null);
   const [revisionId, setRevisionId] = useState<number | null>(null);
-  const [editor, setEditor] = useState<{ post: Post; mode: 'text' | 'generate' | 'upload' } | null>(null);
+  const [editor, setEditor] = useState<{ post: Post; mode: 'text' | 'generate' | 'upload' | 'schedule' } | null>(null);
   const [value, setValue] = useState('');
   const [file, setFile] = useState<File | null>(null);
-  const openEditor = (post: Post, mode: 'text' | 'generate' | 'upload') => {
+  const openEditor = (post: Post, mode: 'text' | 'generate' | 'upload' | 'schedule') => {
     setErr('');
     setValue(mode === 'text' ? post.text : '');
     setFile(null);
@@ -45,7 +45,8 @@ export function Posts({ id, canDecide }: { id: number; canDecide: boolean }) {
     setErr('');
     try {
       const { post, mode } = editor;
-      if (mode === 'text') await api.editPost(post.id, value, post.version);
+      if (mode === 'schedule') await api.reschedulePost(post.id, new Date(value).toISOString(), post.version);
+      else if (mode === 'text') await api.editPost(post.id, value, post.version);
       else if (mode === 'generate') await api.regeneratePostImage(post.id, value.trim(), post.version);
       else await api.uploadPostImage(post.id, file!, post.version);
       setEditor(null);
@@ -137,16 +138,16 @@ export function Posts({ id, canDecide }: { id: number; canDecide: boolean }) {
       }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editor?.mode === 'text' ? 'Изменить текст' : editor?.mode === 'generate' ? 'Перегенерировать картинку' : 'Загрузить свою картинку'}</DialogTitle>
+            <DialogTitle>{editor?.mode === 'schedule' ? 'Перенести публикацию' : editor?.mode === 'text' ? 'Изменить текст' : editor?.mode === 'generate' ? 'Перегенерировать картинку' : 'Загрузить свою картинку'}</DialogTitle>
             <DialogDescription>
-              {editor?.mode === 'generate'
+              {editor?.mode === 'schedule' ? 'Укажите новое будущее время публикации в часовом поясе устройства.' : editor?.mode === 'generate'
                 ? 'Опишите новую картинку. Генерация оплачивается по тарифу провайдера. Текст поста сохранится.'
                 : editor?.mode === 'text' ? 'Измените текст публикации. Картинка сохранится.' : 'PNG, JPEG или WebP до 10 МБ. Текст поста сохранится.'}
-              {' '}После сохранения потребуется повторное согласование.
+              {editor?.mode !== 'schedule' && ' После сохранения потребуется повторное согласование.'}
             </DialogDescription>
           </DialogHeader>
           <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); void save(); }}>
-            {editor?.mode === 'upload' ? (
+            {editor?.mode === 'schedule' ? <Label>Новое время публикации<Input type="datetime-local" value={value} onChange={(event) => setValue(event.target.value)} required disabled={busy !== null} /></Label> : editor?.mode === 'upload' ? (
               <Label>Изображение
                 <Input type="file" accept="image/png,image/jpeg,image/webp" disabled={busy !== null}
                   onChange={(event) => setFile(event.target.files?.[0] ?? null)} required />
@@ -178,6 +179,10 @@ export function Posts({ id, canDecide }: { id: number; canDecide: boolean }) {
           <p className="postText">{p.text}</p>
           {p.check_notes && <div className="note">🔎 {p.check_notes}</div>}
           {p.error && <div className="error">{p.error}</div>}
+          {p.scheduled_at && <p className="muted">Публикация: {fmtDate(p.scheduled_at)}</p>}
+          {p.needs_reschedule && <div className="note">Время публикации прошло. Выберите новое время.
+            {canDecide && <Button type="button" disabled={busy !== null} onClick={() => openEditor(p, 'schedule')}>Перенести публикацию</Button>}
+          </div>}
           {canDecide && ['draft', 'pending_approval', 'approved', 'revision', 'failed'].includes(p.status) && (
             <div className="row">
               <Button type="button" disabled={busy !== null} onClick={() => openEditor(p, 'text')}>📝 Изменить текст</Button>

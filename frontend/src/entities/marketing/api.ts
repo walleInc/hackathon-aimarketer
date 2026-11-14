@@ -9,7 +9,7 @@ import type {
   Doc,
   Social,
   Member,
-  TaskItem,
+  TaskItem, TaskInput, TaskCatalogItem, TaskRun, TelegramAnalytics,
   AuditItem,
 } from './model/types';
 const A = '/api/admin';
@@ -131,16 +131,20 @@ export const api = {
   members: (id: number) => req<Member[]>('GET', `${A}/companies/${id}/users`),
   companyPosts: (id: number) =>
     req<Post[]>('GET', `${A}/companies/${id}/posts`),
-  tasks: (id: number) => req<TaskItem[]>('GET', `${A}/companies/${id}/tasks`),
-  toggleTask: (taskId: number, active: boolean) =>
-    req('PATCH', `${A}/tasks/${taskId}`, { active }),
-  createTask: (id: number, prompt: string, interval_minutes: number) =>
-    req(
-      'POST',
-      '/api/tasks',
-      { prompt, interval_minutes },
-      { 'X-Company-Id': String(id) },
-    ),
+  taskCatalog: () => req<TaskCatalogItem[]>('GET', '/api/tasks/catalog'),
+  tasks: (id: number) => req<TaskItem[]>('GET', '/api/tasks', undefined, { 'X-Company-Id': String(id) }),
+  toggleTask: (taskId: number, active: boolean) => req('PATCH', `/api/tasks/${taskId}`, { active }),
+  deleteTask: (taskId: number) => req('DELETE', `/api/tasks/${taskId}`),
+  createTask: (id: number, body: TaskInput) => req('POST', '/api/tasks', body, { 'X-Company-Id': String(id) }),
+  taskRuns: (taskId: number, before?: number) => req<TaskRun[]>('GET', `/api/tasks/${taskId}/runs${before ? `?before=${before}` : ''}`),
+  taskPost: (postId: number, companyId: number) => req<Post>('GET', `/api/posts/${postId}`, undefined, { 'X-Company-Id': String(companyId) }),
+  reschedulePost: (id: number, scheduled_at: string, version: number) => req<Post>('POST', `/api/posts/${id}/reschedule`, { scheduled_at, version }),
+  telegramAnalytics: (id: number) => req<TelegramAnalytics>('GET', '/api/telegram-analytics', undefined, { 'X-Company-Id': String(id) }),
+  connectTelegram: (phone: string) => req<{step: string}>('POST', '/api/telegram-analytics/connect', { phone }),
+  verifyTelegram: (code: string, password: string) => req<{step: string}>('POST', '/api/telegram-analytics/verify', { code, password }),
+  disconnectTelegram: () => req('DELETE', '/api/telegram-analytics'),
+  availableChannels: () => req<{channel_id: string; title: string}[]>('GET', '/api/telegram-analytics/available-channels'),
+  attachAnalyticsChannel: (channel_id: string) => req('POST', '/api/telegram-analytics/channels', { channel_id }),
   audit: (id?: number) =>
     req<AuditItem[]>('GET', `${A}/audit${id ? `?company_id=${id}` : ''}`),
 };

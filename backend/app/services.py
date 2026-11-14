@@ -1,11 +1,13 @@
 """Ядро бизнес-логики: согласование и публикация. Все правила «нельзя без согласования» живут здесь."""
 import logging
+from datetime import timedelta
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from . import cache, events, jobs, platforms
 from .db import utcnow
+from .config import settings
 from .models import Approval, AuditLog, Post, SocialAccount, User
 from .workflow import InvalidTransition, PostStatus, check_transition
 
@@ -64,9 +66,10 @@ async def decide(
     if target is None:
         raise ValueError("decision must be approve|reject|revise")
     expected = post.version if version is None else version
+    missed = bool(target is S.APPROVED and post.task_run_id is not None and post.scheduled_at and post.scheduled_at <= utcnow())
     claimed = await session.execute(
         update(Post).where(Post.id == post.id, Post.status == S.PENDING.value, Post.version == expected)
-        .values(status=target.value), execution_options={"synchronize_session": False},
+        .values(status=target.value, needs_reschedule=missed), execution_options={"synchronize_session": False},
     )
     if claimed.rowcount != 1:
         await session.rollback()
@@ -81,12 +84,12 @@ async def decide(
     await session.refresh(post)
     await events.publish("post.status", post_id=post.id, company_id=post.company_id, status=post.status)
     await audit(session, post.company_id, user.id, f"post.{decision}", f"post={post.id} {comment}")
-    if target is S.APPROVED and (post.scheduled_at is None or post.scheduled_at <= utcnow()):
+    if target is S.APPROVED and not post.needs_reschedule and (post.scheduled_at is None or post.scheduled_at <= utcnow()):
         await publish_post(session, post.id)
         await session.refresh(post)
         if post.status == S.FAILED.value:  # публикация не удалась: повторим позже (площадка могла быть недоступна)
             await jobs.enqueue("publishing", "publish", {"post_id": post.id}, delay_ms=60_000, attempts=4, backoff_ms=60_000)
-    elif target is S.APPROVED:  # отложенная публикация: задача сработает ровно в назначенное время
+    elif target is S.APPROVED and not post.needs_reschedule:  # отложенная публикация: задача сработает ровно в назначенное время
         delay = int((post.scheduled_at - utcnow()).total_seconds() * 1000)
         await jobs.enqueue("publishing", "publish", {"post_id": post.id}, delay_ms=delay, attempts=4, backoff_ms=60_000)
     await _notify_author(session, post, user, decision, comment)
@@ -101,7 +104,9 @@ async def _notify_author(session: AsyncSession, post: Post, decider: User, decis
     if author is None:
         return
     label = {"approve": "одобрен", "reject": "отклонён", "revise": "возвращён на доработку"}[decision]
-    if post.status == S.PUBLISHED.value:
+    if post.needs_reschedule:
+        label = "одобрен; время публикации прошло — выберите новое время в miniapp"
+    elif post.status == S.PUBLISHED.value:
         label = "одобрен и опубликован"
     elif post.status == S.FAILED.value:
         label = "одобрен, но публикация не удалась"
@@ -165,9 +170,22 @@ async def publish_post(session: AsyncSession, post_id: int, notify: bool = True)
         return None  # этот пост уже публикует другой воркер
 
 
+async def expire_scheduled_posts(session: AsyncSession, post_id: int | None = None) -> None:
+    # Allow normal queue/tick latency, but never replay missed scheduled posts after an outage.
+    cutoff = utcnow() - timedelta(seconds=max(60, settings.scheduler_interval_sec * 2))
+    query = update(Post).where(Post.task_run_id.is_not(None), Post.scheduled_at < cutoff,
+                               Post.status.in_([S.APPROVED.value, S.FAILED.value]), Post.needs_reschedule.is_(False))
+    if post_id is not None:
+        query = query.where(Post.id == post_id)
+    await session.execute(query.values(needs_reschedule=True))
+    await session.commit()
+
+
 async def _publish_post(session: AsyncSession, post_id: int, notify: bool) -> Post | None:
+    await expire_scheduled_posts(session, post_id)
     claimed = await session.execute(
-        update(Post).where(Post.id == post_id, Post.status == S.APPROVED.value).values(status=S.PUBLISHING.value)
+        update(Post).where(Post.id == post_id, Post.status == S.APPROVED.value, Post.needs_reschedule.is_(False),
+                           (Post.scheduled_at.is_(None)) | (Post.scheduled_at <= utcnow())).values(status=S.PUBLISHING.value)
     )
     await session.commit()
     if claimed.rowcount != 1:
@@ -180,7 +198,7 @@ async def _publish_post(session: AsyncSession, post_id: int, notify: bool) -> Po
             select(SocialAccount).where(
                 SocialAccount.company_id == post.company_id,
                 SocialAccount.platform == post.platform,
-                SocialAccount.active.is_(True),
+                SocialAccount.active.is_(True), SocialAccount.analytics_only.is_(False),
             )
         )
     ).scalars().first()
@@ -201,10 +219,11 @@ async def _publish_post(session: AsyncSession, post_id: int, notify: bool) -> Po
 
 
 async def publish_due(session: AsyncSession) -> int:
+    await expire_scheduled_posts(session)
     ids = (
         await session.execute(
             select(Post.id).where(
-                Post.status == S.APPROVED.value,
+                Post.status == S.APPROVED.value, Post.needs_reschedule.is_(False),
                 (Post.scheduled_at.is_(None)) | (Post.scheduled_at <= utcnow()),
             )
         )

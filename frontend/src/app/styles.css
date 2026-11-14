@@ -518,3 +518,20 @@
     box-shadow: 0 2px 8px rgb(25 108 127 / 12%), inset 0 1px 0 white;
   }
 }
+
+.task-select {
+  display: block;
+  width: 100%;
+  min-height: 2.5rem;
+  margin-top: .4rem;
+  padding: .5rem .7rem;
+  border: 1px solid var(--border, #475569);
+  border-radius: .5rem;
+  color: inherit;
+  background: var(--background, #111827);
+  font: inherit;
+}
+.task-select option { background: #111827; color: #f8fafc; }
+.task-day { display: inline-flex; align-items: center; gap: .35rem; padding: .35rem; }
+.task-run { border-top: 1px solid #475569; padding-top: .8rem; overflow-wrap: anywhere; }
+.task-metrics { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .8rem; max-height: 25rem; overflow-y: auto; }
