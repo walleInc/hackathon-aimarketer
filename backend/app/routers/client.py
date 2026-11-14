@@ -1,5 +1,5 @@
 from typing import Literal
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
@@ -21,6 +21,7 @@ def post_out(p: Post) -> dict:
         "id": p.id, "platform": p.platform, "text": p.text, "image_url": p.image_url, "status": p.status,
         "version": p.version, "scheduled_at": p.scheduled_at, "error": p.error, "created_at": p.created_at,
         "check_notes": p.check_notes, "needs_reschedule": p.needs_reschedule,
+        "published_at": p.published_at.replace(tzinfo=timezone.utc) if p.published_at else None,
     }
 
 
@@ -154,6 +155,27 @@ async def agent_message(body: MessageIn, ctx: Ctx = Depends(get_ctx), session: A
     return {"reply": res.reply, "post_id": res.post_id}
 
 
+@router.post("/agent/message/reference")
+async def agent_message_reference(
+    text: str = Form(..., min_length=1, max_length=4000),
+    reference: UploadFile = File(...),
+    ctx: Ctx = Depends(get_ctx), session: AsyncSession = Depends(get_session),
+):
+    ctx.require_creator()
+    if not text.strip():
+        raise HTTPException(422, "Укажите задание для поста")
+    try:
+        data = post_images.reference_bytes(await reference.read(post_images.MAX_IMAGE_BYTES + 1))
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    finally:
+        await reference.close()
+    try:
+        res = await agent.handle_message(session, ctx.require_company(), ctx.user, text.strip(), reference=data)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    return {"reply": res.reply, "post_id": res.post_id}
+
 
 class RescheduleIn(BaseModel):
     scheduled_at: datetime
@@ -162,7 +184,6 @@ class RescheduleIn(BaseModel):
 
 @router.post("/posts/{post_id}/reschedule")
 async def reschedule(post_id: int, body: RescheduleIn, ctx: Ctx = Depends(get_ctx), session: AsyncSession = Depends(get_session)):
-    from datetime import timezone
     from sqlalchemy import update
     from ..db import utcnow
     from .. import jobs
