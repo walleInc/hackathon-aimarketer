@@ -10,7 +10,7 @@ Telegram (бот, Mini App) ──► Core API (FastAPI)
                               ├─ tasks: регулярные задачи и статистика Telegram
                               ├─ content-plans: генерация планов на 1–31 день
                               ├─ scheduler: регулярные задачи и отложенная публикация
-                              └─ platforms: telegram (vk, max — добавляются в REGISTRY)
+                              └─ platforms: telegram, vk (max — добавляется в REGISTRY)
 ```
 
 ## Запуск локально

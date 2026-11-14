@@ -3,4 +3,4 @@ export { api } from './api';
 export { workspaceApi } from './workspace-api';
 export type * from './model/workspace';
 export * from './model/schemas';
-export { ACTION_RU, Kpi, StatusChip, fmtDate } from './ui';
+export { ACTION_RU, PLATFORM_RU, Kpi, StatusChip, fmtDate } from './ui';

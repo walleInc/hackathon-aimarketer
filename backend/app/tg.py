@@ -167,7 +167,8 @@ async def notify_approval(post_id: int) -> None:
         return
     when = post.scheduled_at.strftime("%d.%m.%Y %H:%M UTC") if post.scheduled_at else "сразу после одобрения"
     notes = f"\n\n🔎 {post.check_notes}" if post.check_notes else ""
-    text = f"📝 Материал на согласование (#{post.id}, версия {post.version})\nПлощадка: {post.platform}\nПубликация: {when}\n\n{post.text}{notes}"
+    platform = {"telegram": "Telegram", "vk": "ВКонтакте"}.get(post.platform, post.platform)
+    text = f"📝 Материал на согласование (#{post.id}, версия {post.version})\nПлощадка: {platform}\nПубликация: {when}\n\n{post.text}{notes}"
     for user in approvers:
         try:
             if post.image_url:

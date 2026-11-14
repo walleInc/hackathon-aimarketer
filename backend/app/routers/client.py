@@ -42,6 +42,12 @@ async def me(ctx: Ctx = Depends(get_ctx), session: AsyncSession = Depends(get_se
     }
 
 
+@router.get("/platforms")
+async def list_platforms(ctx: Ctx = Depends(get_ctx), session: AsyncSession = Depends(get_session)):
+    """Площадки компании для выбора при создании поста и задачи: без ID каналов и токенов."""
+    return await agent.connected_platforms(session, ctx.require_company())
+
+
 @router.get("/posts")
 async def list_posts(status: str | None = None, ctx: Ctx = Depends(get_ctx), session: AsyncSession = Depends(get_session)):
     q = select(Post).where(Post.company_id == ctx.require_company()).order_by(Post.id.desc()).limit(100)
@@ -53,6 +59,7 @@ async def list_posts(status: str | None = None, ctx: Ctx = Depends(get_ctx), ses
 class GeneratePostIn(BaseModel):
     prompt: str = Field(min_length=1, max_length=4000)
     content_plan_item_id: int | None = None
+    platform: str | None = None  # пусто = площадка выбирается среди подключённых
 
 
 @router.post("/posts/generate")
@@ -65,7 +72,8 @@ async def generate_post(body: GeneratePostIn, ctx: Ctx = Depends(get_ctx), sessi
     if body.content_plan_item_id is not None:
         await own_item(session, ctx, body.content_plan_item_id)
     try:
-        post = await agent.generate_post_from_assignment(session, ctx.require_company(), ctx.user, body.prompt.strip(), body.content_plan_item_id)
+        post = await agent.generate_post_from_assignment(
+            session, ctx.require_company(), ctx.user, body.prompt.strip(), body.content_plan_item_id, body.platform)
     except (limits.LimitExceeded, cache.RateLimited) as exc:
         raise HTTPException(429, str(exc))
     except jobs.RetryLater:

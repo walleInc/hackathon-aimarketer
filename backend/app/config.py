@@ -32,6 +32,13 @@ class Settings(BaseSettings):
     telegram_api_id: int = 0
     telegram_api_hash: str = ""
 
+    # --- ВКонтакте: публикация в сообщество (wall.post). Пусто = токен берётся из социального аккаунта компании.
+    vk_access_token: str = ""
+    # Ключ сообщества публикует посты, но VK не даёт ему загружать фото на стену (ошибка 27):
+    # для картинок нужен пользовательский ключ с правом photos (необязателен).
+    vk_user_access_token: str = ""
+    vk_api_version: str = "5.199"
+
     ai_images: bool = False  # генерировать картинки моделью (нужен провайдер с поддержкой изображений)
     media_dir: str = "media"
     scheduler_interval_sec: int = 30

@@ -72,7 +72,7 @@ export type TaskCatalogItem = { id: TaskKind; name: string; description: string;
 export type TaskInput = {
   kind: TaskKind; prompt: string; schedule_kind: TaskSchedule;
   interval_minutes: number; timezone: string; local_time: string; weekdays: number[];
-  first_run_local?: string; channel_id?: number;
+  first_run_local?: string; channel_id?: number; platform?: string;
 };
 export type TaskRun = {
   id: number; scheduled_for: string; status: string; started_at: string | null;
@@ -91,7 +91,7 @@ export type TaskItem = {
   last_run: string | null;
   last_result?: { status: string; result: string; error: string } | null;
   kind: TaskKind; schedule_kind: TaskSchedule; timezone: string; local_time: string;
-  weekdays: string; next_run: string | null; channel_id: number | null;
+  weekdays: string; next_run: string | null; channel_id: number | null; platform: string;
 };
 export type AuditItem = {
   id: number;
