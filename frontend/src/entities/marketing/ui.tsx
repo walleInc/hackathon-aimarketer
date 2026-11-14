@@ -58,6 +58,11 @@ export function fmtDate(iso: string | null): string {
   });
 }
 
+export const PLATFORM_RU: Record<string, string> = {
+  telegram: 'Telegram',
+  vk: 'ВКонтакте',
+};
+
 export const ACTION_RU: Record<string, string> = {
   'company.created': 'Создана компания',
   'post.submitted': 'Пост отправлен на согласование',

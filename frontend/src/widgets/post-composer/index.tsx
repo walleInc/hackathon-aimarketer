@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, StatusChip, type ContentPlanItem, type Post } from '@/entities/marketing';
+import { api, PLATFORM_RU, StatusChip, type ContentPlanItem, type Post } from '@/entities/marketing';
 import { useLoad } from '@/shared/lib';
 import { Button, Card, Input, Label, Textarea } from '@/shared/ui';
 
@@ -45,7 +45,7 @@ export function PostComposer({ id, initialItem, onCreated }: {id: number; initia
       <Button disabled={busy || !prompt.trim()}>{busy ? 'Генерируем…' : 'Сгенерировать пост'}</Button>
     </fieldset></form>
     {(error || listError || planError) && <p role="alert" className="error">{error || listError || planError}</p>}
-    {post && <div className="space-y-2"><p>Пост #{post.id} · <StatusChip status={post.status} /></p><p className="postText">{post.text}</p>
+    {post && <div className="space-y-2"><p>Пост #{post.id} · {PLATFORM_RU[post.platform] ?? post.platform} · <StatusChip status={post.status} /></p><p className="postText">{post.text}</p>
       {post.image_url && <img className="postImg" src={post.image_url} alt="Иллюстрация поста" />}</div>}
   </Card>;
 }

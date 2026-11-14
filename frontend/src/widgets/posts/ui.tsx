@@ -1,7 +1,7 @@
 import { PostComposer } from '@/widgets/post-composer';
 import { useState } from 'react';
 import type { Post } from "@/entities/marketing";
-import { api, revisionSchema, StatusChip, fmtDate } from "@/entities/marketing";
+import { api, revisionSchema, StatusChip, fmtDate, PLATFORM_RU } from "@/entities/marketing";
 import { useLoad, useEditorForm } from '@/shared/lib';
 import {
   Button,
@@ -174,7 +174,7 @@ export function Posts({ id, canDecide, employee = false }: { id: number; canDeci
       {(posts ?? []).map((p) => (
         <Card className="card" key={p.id}>
           <div className="meta">
-            #{p.id} · v{p.version} · {p.platform} · {fmtDate(p.created_at)}{' '}
+            #{p.id} · v{p.version} · {PLATFORM_RU[p.platform] ?? p.platform} · {fmtDate(p.created_at)}{' '}
             <StatusChip status={p.status} />
           </div>
           {p.image_url && <img className="postImg" src={p.image_url} alt="" />}

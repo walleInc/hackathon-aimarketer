@@ -1,12 +1,7 @@
 import { ConfirmAction, Button, Card, Input, Label, FormErrors } from "@/shared/ui";
 import { useState } from 'react';
-import { api, channelSchema } from '@/entities/marketing';
+import { api, channelSchema, PLATFORM_RU } from '@/entities/marketing';
 import { useLoad, useEditorForm } from '@/shared/lib';
-
-const PLATFORM_NAMES: Record<string, string> = {
-  telegram: 'Telegram',
-  vk: 'ВКонтакте',
-};
 
 export function Channels({ id }: { id: number }) {
   const [list, reload, loadError] = useLoad(() => api.socials(id), [id]);
@@ -98,7 +93,7 @@ export function Channels({ id }: { id: number }) {
               <span className={`dot ${s.active ? 'ok' : 'off'}`} />
             </div>
             <span className="muted">
-              {PLATFORM_NAMES[s.platform] ?? s.platform} ·{' '}
+              {PLATFORM_RU[s.platform] ?? s.platform} ·{' '}
               {s.active ? 'активен' : 'доступ отозван'}
             </span>
             {s.active && (

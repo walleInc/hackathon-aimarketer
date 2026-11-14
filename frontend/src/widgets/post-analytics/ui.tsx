@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { api, fmtDate, postMetricsSchema } from '@/entities/marketing';
+import { api, fmtDate, postMetricsSchema, PLATFORM_RU } from '@/entities/marketing';
 import type { AnalyticsPost, MetricName } from '@/entities/marketing';
 import { useEditorForm, useLoad } from '@/shared/lib';
 import { Button, Card, Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, Label, Input, FormErrors } from '@/shared/ui';
@@ -113,7 +113,7 @@ export function PostAnalytics({ id, canEdit }: { id: number; canEdit: boolean })
       <h3>Показатели постов</h3>
       {data.posts.length === 0 && <Card className="card muted">За выбранный период опубликованных постов нет.</Card>}
       {data.posts.map((post) => <Card className="card space-y-3" key={post.id}>
-        <div className="meta">#{post.id} · {post.platform} · {post.channel_id || 'Канал не зафиксирован'} · {post.published_at ? fmtDate(post.published_at) : 'Дата публикации неизвестна'}</div>
+        <div className="meta">#{post.id} · {PLATFORM_RU[post.platform] ?? post.platform} · {post.channel_id || 'Канал не зафиксирован'} · {post.published_at ? fmtDate(post.published_at) : 'Дата публикации неизвестна'}</div>
         <p className="line-clamp-3 whitespace-pre-wrap break-words">{post.text}</p>
         <dl className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           {fields.map(({ name, label }) => <div key={name}>
