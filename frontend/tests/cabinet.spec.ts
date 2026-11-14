@@ -23,7 +23,9 @@ async function mockApi(page: Page, role = 'admin') {
     }
     let result: unknown = [];
     if (req.method() !== 'GET') {
-      const body = req.postDataJSON();
+      const body = req.headers()['content-type']?.includes('application/json')
+        ? req.postDataJSON()
+        : req.postData();
       writes.push({ path, body });
       if (req.method() === 'PUT' && path.endsWith('/companies/1'))
         company = { ...company, ...body };
@@ -184,6 +186,7 @@ test('revision and deletion use validated library dialogs', async ({
   expect(writes[0].body).toEqual({
     decision: 'revise',
     comment: 'Добавь подробности',
+    version: 1,
   });
   await page.getByRole('tab', { name: 'Знания', exact: true }).click();
   await page.getByRole('button', { name: 'Удалить', exact: true }).click();
@@ -196,4 +199,38 @@ test('revision and deletion use validated library dialogs', async ({
     .click();
   await expect(dialog).not.toBeVisible();
   expect(writes[1].path).toBe('/api/admin/knowledge/8');
+});
+
+
+test('post text and image actions submit separately and keep version', async ({ page }) => {
+  const writes = await mockApi(page, 'approver');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.getByRole('tab', { name: 'Посты', exact: true }).click();
+  await page.getByRole('button', { name: /Изменить текст/ }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByLabel('Текст публикации')).toHaveValue('Материал');
+  await dialog.getByLabel('Текст публикации').fill('Только новый текст');
+  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  expect(writes[0]).toEqual({ path: '/api/posts/9', body: { text: 'Только новый текст', version: 1 } });
+
+  await page.getByRole('button', { name: /Перегенерировать картинку/ }).click();
+  await expect(dialog).toContainText('Генерация оплачивается');
+  await dialog.getByLabel('Описание новой картинки').fill('Инфографика с фасадом');
+  await dialog.getByRole('button', { name: 'Сгенерировать', exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  expect(writes[1]).toEqual({ path: '/api/posts/9/image/regenerate', body: { prompt: 'Инфографика с фасадом', version: 1 } });
+
+  await page.getByRole('button', { name: /Загрузить свою картинку/ }).click();
+  await dialog.getByLabel('Изображение', { exact: true }).setInputFiles({
+    name: 'test.png', mimeType: 'image/png',
+    buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aU1sAAAAASUVORK5CYII=', 'base64'),
+  });
+  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  expect(writes[2].path).toBe('/api/posts/9/image');
+  expect(writes[2].body).toContain('name="version"');
+  expect(writes[2].body).toContain('filename="test.png"');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });

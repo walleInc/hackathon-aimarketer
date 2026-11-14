@@ -259,3 +259,39 @@ async def revise_post(session: AsyncSession, post: Post, comment: str, user_id: 
     text, notes = await brand_check(session, company, _strip_fences(res.text))
     post.check_notes = notes
     return await services.edit_post_text(session, post, text, user_id)
+
+
+async def regenerate_post_image(
+    session: AsyncSession, post: Post, prompt: str, user_id: int, version: int | None = None,
+) -> Post:
+    if not prompt.strip() or len(prompt) > 4000:
+        raise ValueError("Описание картинки должно содержать от 1 до 4000 символов")
+    services.require_editable(post)
+    expected = post.version if version is None else version
+    if expected != post.version:
+        raise services.InvalidTransition("Материал уже изменён. Обновите его перед генерацией")
+    if not settings.ai_images:
+        raise ValueError("Генерация изображений отключена. Включите AI_IMAGES в настройках сервера")
+    company = await session.get(Company, post.company_id)
+    await limits.check_token_budget(session, company)
+    await cache.rate_limit(f"ai:org:{company.id}", settings.ai_rate_limit_per_min)
+    await cache.rate_limit(f"ai:user:{user_id}", settings.ai_rate_limit_per_user_per_min)
+    async with cache.lock(f"image-generation:{post.id}", ttl_sec=600):
+        description = (
+            f"Создай изображение для публикации компании «{company.name}».\n"
+            f"Правила бренда: {company.brand_rules}\nФирменные цвета: {company.brand_colors}\n"
+            f"Контекст публикации:\n{post.text}\n\nЗадание на изображение:\n{prompt}\n"
+            "Не выдумывай характеристики, цифры и сертификаты. Не рисуй логотип: он будет добавлен отдельно."
+        )
+        url = await get_llm().generate_image(description)
+        if not url or not url.startswith("/media/") or not media_path(url).is_file():
+            raise ValueError("Не удалось сгенерировать изображение. Прежняя картинка сохранена")
+        await _record_usage(session, company.id, "image", 0, 0.0)
+        brand = await branding.load_brand(session, company)
+        with Image.open(media_path(url)) as image:
+            final_url = branding.save_image(branding.place_logo(image, brand))
+        try:
+            return await services.edit_post_image(session, post, final_url, user_id, expected)
+        except services.InvalidTransition:
+            media_path(final_url).unlink(missing_ok=True)
+            raise

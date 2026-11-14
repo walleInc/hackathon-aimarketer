@@ -22,7 +22,25 @@ export const api = {
     id: number,
     decision: 'approve' | 'reject' | 'revise',
     comment = '',
-  ) => req<Post>('POST', `/api/posts/${id}/decision`, { decision, comment }),
+    version?: number,
+  ) => req<Post>('POST', `/api/posts/${id}/decision`, { decision, comment, version }),
+  editPost: (id: number, text: string, version: number) =>
+    req<Post>('PATCH', `/api/posts/${id}`, { text, version }),
+  regeneratePostImage: (id: number, prompt: string, version: number) =>
+    req<Post>('POST', `/api/posts/${id}/image/regenerate`, { prompt, version }),
+  uploadPostImage: async (id: number, file: File, version: number): Promise<Post> => {
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('version', String(version));
+    const h = headers();
+    delete h['Content-Type'];
+    const res = await fetch(`/api/posts/${id}/image`, { method: 'POST', headers: h, body: fd });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(typeof error.detail === 'string' ? error.detail : `HTTP ${res.status}`);
+    }
+    return res.json();
+  },
   chat: (text: string) =>
     req<{ reply: string; post_id: number | null }>(
       'POST',

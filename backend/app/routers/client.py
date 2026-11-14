@@ -1,11 +1,12 @@
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .. import agent, limits, services
+from .. import agent, cache, limits, post_images, services
+from ..media import media_path
 from ..auth import Ctx, get_ctx
 from ..db import get_session
 from ..models import Company, Post, Task
@@ -54,6 +55,7 @@ async def get_post(post_id: int, ctx: Ctx = Depends(get_ctx), session: AsyncSess
 class DecisionIn(BaseModel):
     decision: Literal["approve", "reject", "revise"]
     comment: str = ""
+    version: int | None = Field(default=None, ge=1)
 
 
 @router.post("/posts/{post_id}/decision")
@@ -68,7 +70,7 @@ async def decide(post_id: int, body: DecisionIn, ctx: Ctx = Depends(get_ctx), se
         except limits.LimitExceeded as e:
             raise HTTPException(429, str(e))
     try:
-        post = await services.decide(session, post, ctx.user, body.decision, body.comment)
+        post = await services.decide(session, post, ctx.user, body.decision, body.comment, body.version)
         if body.decision == "revise" and body.comment:
             post = await agent.revise_post(session, post, body.comment, ctx.user.id)
     except InvalidTransition as e:
@@ -77,7 +79,8 @@ async def decide(post_id: int, body: DecisionIn, ctx: Ctx = Depends(get_ctx), se
 
 
 class EditIn(BaseModel):
-    text: str
+    text: str = Field(min_length=1, max_length=4096)
+    version: int | None = Field(default=None, ge=1)
 
 
 @router.patch("/posts/{post_id}")
@@ -86,9 +89,56 @@ async def edit(post_id: int, body: EditIn, ctx: Ctx = Depends(get_ctx), session:
         raise HTTPException(403, "Править текст может только администратор компании")
     post = await _post(session, ctx, post_id)
     try:
-        post = await services.edit_post_text(session, post, body.text, ctx.user.id)
+        post.check_notes = "Текст изменён вручную; требуется проверка согласующего"
+        post = await services.edit_post_text(session, post, body.text, ctx.user.id, body.version)
     except InvalidTransition as e:
         raise HTTPException(409, str(e))
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    return post_out(post)
+
+
+class RegenerateImageIn(BaseModel):
+    prompt: str = Field(min_length=1, max_length=4000)
+    version: int | None = Field(default=None, ge=1)
+
+
+@router.post("/posts/{post_id}/image/regenerate")
+async def regenerate_image(
+    post_id: int, body: RegenerateImageIn, ctx: Ctx = Depends(get_ctx), session: AsyncSession = Depends(get_session),
+):
+    if not ctx.can_approve:
+        raise HTTPException(403, "Менять изображение может только администратор компании")
+    post = await _post(session, ctx, post_id)
+    try:
+        post = await agent.regenerate_post_image(session, post, body.prompt, ctx.user.id, body.version)
+    except (cache.LockBusy, InvalidTransition) as e:
+        raise HTTPException(409, str(e) if isinstance(e, InvalidTransition) else "Картинка уже генерируется")
+    except (limits.LimitExceeded, cache.RateLimited) as e:
+        raise HTTPException(429, str(e))
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    return post_out(post)
+
+
+@router.post("/posts/{post_id}/image")
+async def upload_image(
+    post_id: int, file: UploadFile = File(...), version: int | None = Form(None),
+    ctx: Ctx = Depends(get_ctx), session: AsyncSession = Depends(get_session),
+):
+    if not ctx.can_approve:
+        raise HTTPException(403, "Менять изображение может только администратор компании")
+    post = await _post(session, ctx, post_id)
+    url = None
+    try:
+        services.require_editable(post)
+        data = await file.read(post_images.MAX_IMAGE_BYTES + 1)
+        url = post_images.save_upload(data)
+        post = await services.edit_post_image(session, post, url, ctx.user.id, version)
+    except (ValueError, InvalidTransition) as e:
+        if url:
+            media_path(url).unlink(missing_ok=True)
+        raise HTTPException(409 if isinstance(e, InvalidTransition) else 422, str(e))
     return post_out(post)
 
 

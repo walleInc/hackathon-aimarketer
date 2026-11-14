@@ -55,19 +55,31 @@ async def submit_for_approval(session: AsyncSession, post: Post) -> Post:
     return post
 
 
-async def decide(session: AsyncSession, post: Post, user: User, decision: str, comment: str = "") -> Post:
+async def decide(
+    session: AsyncSession, post: Post, user: User, decision: str, comment: str = "", version: int | None = None,
+) -> Post:
     if post.status != S.PENDING.value:
         raise InvalidTransition(f"Пост в статусе {post.status}, решение невозможно")
     target = {"approve": S.APPROVED, "reject": S.REJECTED, "revise": S.REVISION}.get(decision)
     if target is None:
         raise ValueError("decision must be approve|reject|revise")
+    expected = post.version if version is None else version
+    claimed = await session.execute(
+        update(Post).where(Post.id == post.id, Post.status == S.PENDING.value, Post.version == expected)
+        .values(status=target.value), execution_options={"synchronize_session": False},
+    )
+    if claimed.rowcount != 1:
+        await session.rollback()
+        raise InvalidTransition("Материал уже изменён или решение принято. Откройте актуальную версию")
     session.add(
         Approval(
-            company_id=post.company_id, post_id=post.id, post_version=post.version,
+            company_id=post.company_id, post_id=post.id, post_version=expected,
             user_id=user.id, decision=decision, comment=comment,
         )
     )
-    await _set_status(session, post, target)
+    await session.commit()
+    await session.refresh(post)
+    await events.publish("post.status", post_id=post.id, company_id=post.company_id, status=post.status)
     await audit(session, post.company_id, user.id, f"post.{decision}", f"post={post.id} {comment}")
     if target is S.APPROVED and (post.scheduled_at is None or post.scheduled_at <= utcnow()):
         await publish_post(session, post.id)
@@ -102,24 +114,46 @@ async def _notify_author(session: AsyncSession, post: Post, decider: User, decis
         log.exception("notify_author failed")
 
 
-async def edit_post_text(session: AsyncSession, post: Post, text: str, user_id: int | None = None) -> Post:
-    """Любая правка текста увеличивает версию и требует повторного согласования."""
+def require_editable(post: Post) -> None:
     if post.status in (S.PUBLISHING.value, S.PUBLISHED.value, S.REJECTED.value):
         raise InvalidTransition(f"Пост в статусе {post.status} нельзя редактировать")
-    post.text = text
-    post.version += 1
+
+
+async def _edit_post(session: AsyncSession, post: Post, changes: dict, user_id: int | None, version: int | None) -> Post:
+    """Сохраняет только выбранную часть и возвращает новую версию на согласование."""
+    require_editable(post)
+    expected = post.version if version is None else version
+    changed = await session.execute(
+        update(Post).where(
+            Post.id == post.id, Post.version == expected,
+            Post.status.in_([S.DRAFT.value, S.PENDING.value, S.APPROVED.value, S.REVISION.value, S.FAILED.value]),
+        ).values(**changes, version=expected + 1, status=S.PENDING.value, error=""),
+        execution_options={"synchronize_session": False},
+    )
+    if changed.rowcount != 1:
+        await session.rollback()
+        raise InvalidTransition("Материал уже изменён. Откройте актуальную версию и повторите действие")
     await session.commit()
-    if post.status == S.REVISION.value:
-        await _set_status(session, post, S.DRAFT)
-    if post.status == S.DRAFT.value:
-        await submit_for_approval(session, post)
-    elif post.status == S.PENDING.value:
-        await _notify_approval(post.id)
-    else:  # approved / failed -> снова на согласование
-        await _set_status(session, post, S.PENDING)
-        await _notify_approval(post.id)
-    await audit(session, post.company_id, user_id, "post.edited", f"post={post.id} v{post.version}")
+    await session.refresh(post)
+    await events.publish("post.status", post_id=post.id, company_id=post.company_id, status=post.status)
+    await _notify_approval(post.id)
+    action = "post.image_changed" if "image_url" in changes else "post.edited"
+    await audit(session, post.company_id, user_id, action, f"post={post.id} v{post.version}")
     return post
+
+
+async def edit_post_text(
+    session: AsyncSession, post: Post, text: str, user_id: int | None = None, version: int | None = None,
+) -> Post:
+    if not text.strip() or len(text) > 4096:
+        raise ValueError("Текст должен содержать от 1 до 4096 символов")
+    return await _edit_post(session, post, {"text": text}, user_id, version)
+
+
+async def edit_post_image(
+    session: AsyncSession, post: Post, image_url: str, user_id: int | None = None, version: int | None = None,
+) -> Post:
+    return await _edit_post(session, post, {"image_url": image_url}, user_id, version)
 
 
 async def publish_post(session: AsyncSession, post_id: int, notify: bool = True) -> Post | None:
