@@ -158,6 +158,8 @@ class Post(Base):
     needs_reschedule: Mapped[bool] = mapped_column(Boolean, default=False)
     task_run_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     external_id: Mapped[str] = mapped_column(String(200), default="")
+    published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    published_channel_id: Mapped[str] = mapped_column(String(200), default="")
     error: Mapped[str] = mapped_column(Text, default="")
     check_notes: Mapped[str] = mapped_column(Text, default="")  # результат проверки на соответствие бренду
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
@@ -196,4 +198,36 @@ class UsageCost(Base):
     kind: Mapped[str] = mapped_column(String(40))  # llm | image
     tokens: Mapped[int] = mapped_column(Integer, default=0)
     cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class PostMetrics(Base):
+    """Последние известные показатели; отсутствие измерения отличается от нуля."""
+    __tablename__ = "post_metrics"
+
+    post_id: Mapped[int] = mapped_column(ForeignKey("posts.id"), primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    views: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    views_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    views_source: Mapped[str] = mapped_column(String(20), default="")
+    reactions: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reactions_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    reactions_source: Mapped[str] = mapped_column(String(20), default="")
+    reactions_update_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    forwards: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    forwards_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    forwards_source: Mapped[str] = mapped_column(String(20), default="")
+    comments: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    comments_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    comments_source: Mapped[str] = mapped_column(String(20), default="")
+
+
+class AnalyticsAdvice(Base):
+    __tablename__ = "analytics_advice"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    period_days: Mapped[int] = mapped_column(Integer)
+    data_hash: Mapped[str] = mapped_column(String(64))
+    text: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

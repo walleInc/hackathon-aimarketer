@@ -14,5 +14,5 @@ class ChatGPTAccountProvider:
     async def complete(self, system: str, messages: list[dict], json_mode: bool = False) -> LLMResult:
         raise NotImplementedError("Подключение через аккаунт ChatGPT ещё не реализовано")
 
-    async def generate_image(self, prompt: str) -> str | None:
+    async def generate_image(self, prompt: str, reference: bytes | None = None) -> str | None:
         raise NotImplementedError("Подключение через аккаунт ChatGPT ещё не реализовано")

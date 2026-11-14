@@ -24,7 +24,7 @@ async def _set_webhook_with_retries(attempts: int = 20) -> None:
     url = f"{settings.public_url.rstrip('/')}/webhook/{settings.webhook_secret}"
     for attempt in range(1, attempts + 1):
         try:
-            await tg.bot.set_webhook(url, allowed_updates=["message", "callback_query"])
+            await tg.bot.set_webhook(url, allowed_updates=["message", "callback_query", "message_reaction_count"])
             log.info("webhook установлен (попытка %d)", attempt)
             return
         except asyncio.CancelledError:
@@ -41,7 +41,7 @@ async def _run_polling() -> None:
         try:
             await tg.bot.delete_webhook()  # webhook и polling взаимоисключающи; очередь не сбрасываем
             log.info("бот запущен в режиме long polling")
-            await tg.dp.start_polling(tg.bot, handle_signals=False)
+            await tg.dp.start_polling(tg.bot, handle_signals=False, allowed_updates=["message", "callback_query", "message_reaction_count"])
             return
         except asyncio.CancelledError:
             raise

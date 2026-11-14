@@ -67,6 +67,8 @@ export const ACTION_RU: Record<string, string> = {
   'post.edited': 'Текст поста изменён',
   'post.published': 'Пост опубликован',
   'post.failed': 'Ошибка публикации',
+  'post.metrics': 'Обновлены показатели поста',
+  'analytics.recommendations': 'Сформированы рекомендации по постам',
   'social.connected': 'Подключён канал',
   'social.revoked': 'Доступ к каналу отозван',
   'user.joined': 'Сотрудник подключился',

@@ -9,7 +9,7 @@ from . import branding
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
 
 
-def save_upload(data: bytes) -> str:
+def prepare_upload(data: bytes) -> Image.Image:
     if not data or len(data) > MAX_IMAGE_BYTES:
         raise ValueError("Загрузите изображение размером до 10 МБ")
     try:
@@ -22,6 +22,17 @@ def save_upload(data: bytes) -> str:
                     raise ValueError("Изображение должно содержать не более 20 млн пикселей")
                 image = ImageOps.exif_transpose(source).convert("RGB")
                 image.thumbnail((2560, 2560))
-                return branding.save_image(image, "uploads")
+                return image.copy()
     except (UnidentifiedImageError, OSError, Image.DecompressionBombError, Image.DecompressionBombWarning) as exc:
         raise ValueError("Не удалось прочитать изображение. Используйте PNG, JPEG или WebP") from exc
+
+
+def save_upload(data: bytes) -> str:
+    return branding.save_image(prepare_upload(data), "uploads")
+
+
+def reference_bytes(data: bytes) -> bytes:
+    image = prepare_upload(data)
+    output = io.BytesIO()
+    image.save(output, format="PNG")
+    return output.getvalue()

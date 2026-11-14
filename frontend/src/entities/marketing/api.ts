@@ -1,6 +1,9 @@
 import { req, headers } from '@/shared/api';
 import type {
   Post,
+  PostAnalytics,
+  AnalyticsAdvice,
+  MetricName,
   Me,
   Company,
   Asset,
@@ -41,6 +44,19 @@ export const api = {
     }
     return res.json();
   },
+  chatWithReference: async (text: string, reference: File) => {
+    const fd = new FormData();
+    fd.append('text', text);
+    fd.append('reference', reference);
+    const h = headers();
+    delete h['Content-Type'];
+    const res = await fetch('/api/agent/message/reference', { method: 'POST', headers: h, body: fd });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(typeof error.detail === 'string' ? error.detail : `HTTP ${res.status}`);
+    }
+    return res.json() as Promise<{ reply: string; post_id: number | null }>;
+  },
   chat: (text: string) =>
     req<{ reply: string; post_id: number | null }>(
       'POST',
@@ -48,6 +64,12 @@ export const api = {
       { text },
     ),
 
+  postAnalytics: (id: number, days: number) =>
+    req<PostAnalytics>('GET', `/api/analytics/posts?days=${days}`, undefined, { 'X-Company-Id': String(id) }),
+  savePostMetrics: (id: number, values: Partial<Record<MetricName, number>>) =>
+    req<{ ok: boolean }>('PUT', `/api/posts/${id}/metrics`, values),
+  recommendPosts: (id: number, days: number) =>
+    req<AnalyticsAdvice>('POST', '/api/analytics/posts/recommendations', { days }, { 'X-Company-Id': String(id) }),
   stats: () => req<Stat[]>('GET', `${A}/stats`),
   companies: () => req<Company[]>('GET', `${A}/companies`),
   createCompany: (c: Partial<Omit<Company, 'id'>> & { name: string }) =>

@@ -34,3 +34,14 @@ export const channelSchema = z.object({
 export const revisionSchema = z.object({
   comment: z.string().trim().min(1, 'Опишите необходимые изменения'),
 });
+
+
+const metricInput = z.string().trim().refine(
+  (value) => value === '' || (/^\d+$/.test(value) && Number(value) <= 2_000_000_000),
+  'Введите целое число от 0 до 2 млрд',
+);
+export const postMetricsSchema = z.object({
+  views: metricInput, reactions: metricInput, forwards: metricInput, comments: metricInput,
+}).refine((values) => Object.values(values).some((value) => value !== ''), {
+  message: 'Заполните хотя бы один показатель', path: ['views'],
+});

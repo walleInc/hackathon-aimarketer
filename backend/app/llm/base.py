@@ -16,6 +16,6 @@ class LLMProvider(Protocol):
         """messages: [{"role": "user"|"assistant", "content": str}]"""
         ...
 
-    async def generate_image(self, prompt: str) -> str | None:
+    async def generate_image(self, prompt: str, reference: bytes | None = None) -> str | None:
         """Возвращает путь вида /media/xxx.png или URL; None, если изображение не получено."""
         ...
