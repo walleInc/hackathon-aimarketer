@@ -56,6 +56,13 @@ Search results are limited to 20 per source; narrow dates or keywords if needed.
 def _explicit_creation_request(text: str) -> bool:
     return bool(re.match(r"^\s*(?:пожалуйста[, ]+)?(?:напиши|подготовь|создай|сделай|придумай)\b", text, re.I))
 
+
+FORCE_POST = (
+    "Пользователь просит готовый материал. Ответь ТОЛЬКО JSON вида create_post "
+    "(platform, post_text, headline, card_text, image_prompt, reply) без пояснений. "
+    "post_text — готовый текст публикации, а не обсуждение."
+)
+
 BRAND_CHECK = """ПРОВЕРКА_БРЕНДА
 Проверь текст поста на соответствие правилам бренда, тону и фактам из базы знаний:
 нет выдуманных фактов, название бренда написано верно, нет запрещённых формулировок.
@@ -390,6 +397,3 @@ async def regenerate_post_image(session: AsyncSession, post: Post, prompt: str, 
     await runs.execute_sync(session, run.id, propagate=True)
     await session.refresh(post)
     return post
-
-
-FORCE_POST = "Ответь JSON create_post с готовым post_text, headline, card_text и image_prompt."

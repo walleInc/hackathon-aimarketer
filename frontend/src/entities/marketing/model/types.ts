@@ -121,19 +121,6 @@ export type PostAnalytics = {
   ai_advice: AnalyticsAdvice | null;
 };
 
-export type ContentPlanItem = {
-  id: number; plan_id: number; planned_date: string; title: string; description: string;
-  position: number; version: number; posts: {id: number; status: string}[];
-};
-export type ContentPlan = {
-  id: number; title: string; start_date: string; end_date: string; posts_per_day: number;
-  wishes: string; created_by: number; status: 'generating' | 'ready' | 'failed';
-  completed_days: number; total_days: number;
-  days: {date: string; status: string; error: string}[]; items?: ContentPlanItem[];
-};
-export type ContentPlanInput = {title: string; start_date: string; end_date: string; posts_per_day: number; wishes: string};
-export type ContentPlanItemInput = Pick<ContentPlanItem, 'planned_date' | 'title' | 'description' | 'position'>;
-
 export type AgentRun = {
   id: number;
   kind: string;
@@ -158,3 +145,16 @@ export type ChatMessage = {
 };
 
 export type ChatPage = { items: ChatMessage[]; next_cursor: number | null };
+
+export type ContentPlanItem = {
+  id: number; plan_id: number; planned_date: string; title: string; description: string;
+  position: number; version: number; posts: {id: number; status: string}[];
+};
+export type ContentPlan = {
+  id: number; title: string; start_date: string; end_date: string; posts_per_day: number;
+  wishes: string; created_by: number; status: 'generating' | 'ready' | 'failed';
+  completed_days: number; total_days: number;
+  days: {date: string; status: string; error: string}[]; items?: ContentPlanItem[];
+};
+export type ContentPlanInput = {title: string; start_date: string; end_date: string; posts_per_day: number; wishes: string};
+export type ContentPlanItemInput = Pick<ContentPlanItem, 'planned_date' | 'title' | 'description' | 'position'>;

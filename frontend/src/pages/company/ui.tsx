@@ -87,7 +87,7 @@ export function CompanyPage({
             />
           )}
         </TabsContent>
-        <TabsContent value="ИИ"><AgentChat /></TabsContent>
+        {!limitsEditable && <TabsContent value="ИИ"><AgentChat /></TabsContent>}
         <TabsContent value="Профиль"><Profile id={id} /></TabsContent>
         <TabsContent value="Знания">
           <Knowledge id={id} />
