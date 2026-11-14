@@ -22,6 +22,7 @@ def post_out(p: Post) -> dict:
         "version": p.version, "scheduled_at": p.scheduled_at, "error": p.error, "created_at": p.created_at,
         "check_notes": p.check_notes, "needs_reschedule": p.needs_reschedule,
         "published_at": p.published_at.replace(tzinfo=timezone.utc) if p.published_at else None,
+        "content_plan_item_id": p.content_plan_item_id, "content_plan_prompt": p.content_plan_prompt,
     }
 
 
@@ -36,7 +37,7 @@ async def _post(session: AsyncSession, ctx: Ctx, post_id: int) -> Post:
 async def me(ctx: Ctx = Depends(get_ctx), session: AsyncSession = Depends(get_session)):
     company = await session.get(Company, ctx.company_id) if ctx.company_id else None
     return {
-        "telegram_id": ctx.user.telegram_id, "role": ctx.user.role,
+        "telegram_id": ctx.user.telegram_id, "name": ctx.user.name, "role": ctx.user.role,
         "company": {"id": company.id, "name": company.name} if company else None,
     }
 
@@ -47,6 +48,31 @@ async def list_posts(status: str | None = None, ctx: Ctx = Depends(get_ctx), ses
     if status:
         q = q.where(Post.status == status)
     return [post_out(p) for p in (await session.execute(q)).scalars()]
+
+
+class GeneratePostIn(BaseModel):
+    prompt: str = Field(min_length=1, max_length=4000)
+    content_plan_item_id: int | None = None
+
+
+@router.post("/posts/generate")
+async def generate_post(body: GeneratePostIn, ctx: Ctx = Depends(get_ctx), session: AsyncSession = Depends(get_session)):
+    from .content_plans import own_item
+    from .. import jobs
+    ctx.require_creator()
+    if not body.prompt.strip():
+        raise HTTPException(422, "Опишите задание")
+    if body.content_plan_item_id is not None:
+        await own_item(session, ctx, body.content_plan_item_id)
+    try:
+        post = await agent.generate_post_from_assignment(session, ctx.require_company(), ctx.user, body.prompt.strip(), body.content_plan_item_id)
+    except (limits.LimitExceeded, cache.RateLimited) as exc:
+        raise HTTPException(429, str(exc))
+    except jobs.RetryLater:
+        raise HTTPException(429, "ИИ занят другим заданием компании; повторите позже")
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    return post_out(post)
 
 
 @router.get("/posts/{post_id}")

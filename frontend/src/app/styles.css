@@ -628,3 +628,4 @@
 .chat-image { display: block; width: auto; max-width: 100%; max-height: 360px; object-fit: contain; border-radius: 12px; }
 .chat-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .agent-chat form { display: grid; gap: 12px; }
+.plan-item { border-top: 1px solid #c5d4d8; padding-top: 1rem; overflow-wrap: anywhere; }

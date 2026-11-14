@@ -9,7 +9,7 @@ from app import marketing, services, task_execution, telegram_analytics
 from app.config import settings
 from app.db import SessionLocal, utcnow
 from app.llm.base import LLMResult
-from app.models import (ContentPlanItem, MarketingDocument, MarketingHypothesis, MetricObservation,
+from app.models import (MarketingPlanItem, MarketingDocument, MarketingHypothesis, MetricObservation,
                         Post, SocialAccount, SocialMetricSnapshot, Task, TaskRun, TelegramConnection)
 from app.security import encrypt
 from tests.conftest import as_user

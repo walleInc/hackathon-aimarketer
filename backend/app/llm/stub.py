@@ -1,5 +1,6 @@
 """Детерминированный провайдер без внешних вызовов — для разработки и тестов."""
 import json
+import re
 
 from .base import LLMResult
 
@@ -26,6 +27,9 @@ class StubProvider:
                 data["plan"] = [{"topic": f"Тема дня {i}: полезный материал о компании", "format": "Текст и изображение", "rubric": "Экспертные советы",
                     "rationale": "Демонстрационное предложение; факты взять из базы знаний", "day": i} for i in range(1, 8)]
             return LLMResult(text=json.dumps(data, ensure_ascii=False), tokens=100)
+        if "КОНТЕНТ_ПЛАН" in last:
+            count = int(re.search(r"Число задач: (\d+)", last).group(1))
+            return LLMResult(text=json.dumps({"items": [{"title": f"Идея {i + 1}", "description": f"Расскажите о продукте: полезный совет {i + 1} с учётом фактов компании."} for i in range(count)]}, ensure_ascii=False))
         if "ПРОВЕРКА_БРЕНДА" in last:
             return LLMResult(text=json.dumps({"ok": True, "issues": [], "fixed_text": ""}))
         from ..agent import _explicit_creation_request

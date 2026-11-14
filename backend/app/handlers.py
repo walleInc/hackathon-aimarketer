@@ -200,3 +200,9 @@ async def moderate(data: dict, ctx: JobCtx):
         return {"label": verdict.get("label", "ok"), "reason": verdict.get("reason", ""),
                 "suggested_reply": verdict.get("suggested_reply", "")}
 
+
+
+@handler("ai-generation", "content_plan_day")
+async def content_plan_day(data: dict, ctx: JobCtx):
+    from .content_plans import generate_day
+    await generate_day(int(data["day_id"]))

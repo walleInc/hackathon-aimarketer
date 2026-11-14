@@ -14,7 +14,7 @@ from .. import cache, marketing, services
 from ..auth import Ctx, get_ctx
 from ..config import settings
 from ..db import get_session, utcnow
-from ..models import (Company, Competitor, ContentPlanItem, MarketingDocument, MarketingHypothesis,
+from ..models import (Company, Competitor, MarketingPlanItem, MarketingDocument, MarketingHypothesis,
                       MarketingSettings, SocialAccount, Task, TaskRun)
 from ..task_schedules import following
 
@@ -63,7 +63,7 @@ async def state(days: int = Query(30, ge=7, le=90), channel: str = Query("", max
     competitors = (await session.execute(select(Competitor).where(Competitor.company_id == cid).order_by(Competitor.id))).scalars().all()
     documents = (await session.execute(select(MarketingDocument).where(MarketingDocument.company_id == cid).order_by(MarketingDocument.id.desc()).limit(50))).scalars().all()
     hypotheses = (await session.execute(select(MarketingHypothesis).where(MarketingHypothesis.company_id == cid).order_by(MarketingHypothesis.id.desc()).limit(200))).scalars().all()
-    plan = (await session.execute(select(ContentPlanItem).where(ContentPlanItem.company_id == cid).order_by(ContentPlanItem.id.desc()).limit(100))).scalars().all()
+    plan = (await session.execute(select(MarketingPlanItem).where(MarketingPlanItem.company_id == cid).order_by(MarketingPlanItem.id.desc()).limit(100))).scalars().all()
     runs = (await session.execute(select(TaskRun, Task.kind).join(Task).where(TaskRun.company_id == cid, Task.kind.in_(marketing.KINDS | {"post"})).order_by(TaskRun.id.desc()).limit(30))).all()
     channels = (await session.execute(select(SocialAccount).where(SocialAccount.company_id == cid, SocialAccount.active.is_(True), SocialAccount.platform == "telegram"))).scalars().all()
     report_task = await session.get(Task, profile.report_task_id) if profile and profile.report_task_id else None
@@ -224,15 +224,15 @@ async def approve_strategy(item_id: int, ctx: Ctx = Depends(company), session: A
 @router.post("/plan/{item_id}/prepare", status_code=202)
 async def prepare_plan(item_id: int, ctx: Ctx = Depends(company), session: AsyncSession = Depends(get_session)):
     ctx.require_creator()
-    item = await owned(session, ContentPlanItem, item_id, ctx.company_id)
+    item = await owned(session, MarketingPlanItem, item_id, ctx.company_id)
     if item.task_id:
         raise HTTPException(409, "Материал уже передан в подготовку")
     prompt = f"Подготовь пост. Тема: {item.topic}. Формат: {item.format}. Рубрика: {item.rubric}. {item.rationale}"
     task, run = await marketing.create_run(session, ctx.company_id, ctx.user.id, "post", {})
     task.prompt = prompt
     # Claim atomically: two clicks must not generate two materials.
-    claimed = await session.execute(update(ContentPlanItem).where(ContentPlanItem.id == item.id,
-        ContentPlanItem.company_id == ctx.company_id, ContentPlanItem.task_id.is_(None)).values(task_id=task.id))
+    claimed = await session.execute(update(MarketingPlanItem).where(MarketingPlanItem.id == item.id,
+        MarketingPlanItem.company_id == ctx.company_id, MarketingPlanItem.task_id.is_(None)).values(task_id=task.id))
     if claimed.rowcount != 1:
         await session.rollback()
         raise HTTPException(409, "Материал уже передан в подготовку")

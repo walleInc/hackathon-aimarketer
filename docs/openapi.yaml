@@ -15,6 +15,7 @@ servers:
 security:
   - tma: []
 tags:
+  - {name: content-plans, description: Общие контент-планы компании}
   - {name: tasks, description: Задачи по расписанию}
   - {name: telegram-analytics, description: Подключение статистики Telegram}
   - {name: marketing, description: Кабинет маркетолога — реализованные контракты в marketing-openapi.json}
@@ -341,6 +342,116 @@ components:
         post_id: {type: integer, nullable: true}
         sources: {type: array, items: {type: object, properties: {title: {type: string}, url: {type: string}}}}
         metrics: {type: object, additionalProperties: true}
+
+    PlanIn:
+      properties:
+        title:
+          type: string
+          maxLength: 200
+          minLength: 1
+          title: Title
+        start_date:
+          type: string
+          format: date
+          title: Start Date
+        end_date:
+          type: string
+          format: date
+          title: End Date
+        posts_per_day:
+          type: integer
+          maximum: 10.0
+          minimum: 1.0
+          title: Posts Per Day
+        wishes:
+          type: string
+          maxLength: 3000
+          title: Wishes
+          default: ''
+      type: object
+      required:
+      - title
+      - start_date
+      - end_date
+      - posts_per_day
+      title: PlanIn
+
+    ItemIn:
+      properties:
+        planned_date:
+          type: string
+          format: date
+          title: Planned Date
+        title:
+          type: string
+          maxLength: 200
+          minLength: 1
+          title: Title
+        description:
+          type: string
+          maxLength: 3000
+          minLength: 1
+          title: Description
+        position:
+          type: integer
+          minimum: 0.0
+          title: Position
+          default: 0
+      type: object
+      required:
+      - planned_date
+      - title
+      - description
+      title: ItemIn
+
+    ItemEdit:
+      properties:
+        planned_date:
+          type: string
+          format: date
+          title: Planned Date
+        title:
+          type: string
+          maxLength: 200
+          minLength: 1
+          title: Title
+        description:
+          type: string
+          maxLength: 3000
+          minLength: 1
+          title: Description
+        position:
+          type: integer
+          minimum: 0.0
+          title: Position
+          default: 0
+        version:
+          type: integer
+          minimum: 1.0
+          title: Version
+      type: object
+      required:
+      - planned_date
+      - title
+      - description
+      - version
+      title: ItemEdit
+
+    GeneratePostIn:
+      properties:
+        prompt:
+          type: string
+          maxLength: 4000
+          minLength: 1
+          title: Prompt
+        content_plan_item_id:
+          title: Content Plan Item Id
+          nullable: true
+          type: integer
+      type: object
+      required:
+      - prompt
+      title: GeneratePostIn
 
 paths:
   # ───────────────────────── Служебные (implemented) ─────────────────────────
@@ -1850,6 +1961,406 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/ChannelIn'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      x-status: implemented
+
+  /api/posts/generate:
+    post:
+      summary: Generate Post
+      operationId: generate_post_api_posts_generate_post
+      parameters:
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          title: Authorization
+          nullable: true
+          type: string
+      - name: x-dev-user
+        in: header
+        required: false
+        schema:
+          title: X-Dev-User
+          nullable: true
+          type: string
+      - name: x-company-id
+        in: header
+        required: false
+        schema:
+          title: X-Company-Id
+          nullable: true
+          type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GeneratePostIn'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      x-status: implemented
+
+  /api/content-plans:
+    get:
+      tags:
+      - content-plans
+      summary: List Plans
+      operationId: list_plans_api_content_plans_get
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 50
+          title: Limit
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          title: Authorization
+          nullable: true
+          type: string
+      - name: x-dev-user
+        in: header
+        required: false
+        schema:
+          title: X-Dev-User
+          nullable: true
+          type: string
+      - name: x-company-id
+        in: header
+        required: false
+        schema:
+          title: X-Company-Id
+          nullable: true
+          type: integer
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      x-status: implemented
+    post:
+      tags:
+      - content-plans
+      summary: Create Plan
+      operationId: create_plan_api_content_plans_post
+      parameters:
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          title: Authorization
+          nullable: true
+          type: string
+      - name: x-dev-user
+        in: header
+        required: false
+        schema:
+          title: X-Dev-User
+          nullable: true
+          type: string
+      - name: x-company-id
+        in: header
+        required: false
+        schema:
+          title: X-Company-Id
+          nullable: true
+          type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlanIn'
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      x-status: implemented
+
+  /api/content-plans/{plan_id}:
+    get:
+      tags:
+      - content-plans
+      summary: Get Plan
+      operationId: get_plan_api_content_plans__plan_id__get
+      parameters:
+      - name: plan_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Plan Id
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          title: Authorization
+          nullable: true
+          type: string
+      - name: x-dev-user
+        in: header
+        required: false
+        schema:
+          title: X-Dev-User
+          nullable: true
+          type: string
+      - name: x-company-id
+        in: header
+        required: false
+        schema:
+          title: X-Company-Id
+          nullable: true
+          type: integer
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      x-status: implemented
+
+  /api/content-plans/{plan_id}/retry:
+    post:
+      tags:
+      - content-plans
+      summary: Retry Plan
+      operationId: retry_plan_api_content_plans__plan_id__retry_post
+      parameters:
+      - name: plan_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Plan Id
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          title: Authorization
+          nullable: true
+          type: string
+      - name: x-dev-user
+        in: header
+        required: false
+        schema:
+          title: X-Dev-User
+          nullable: true
+          type: string
+      - name: x-company-id
+        in: header
+        required: false
+        schema:
+          title: X-Company-Id
+          nullable: true
+          type: integer
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      x-status: implemented
+
+  /api/content-plans/{plan_id}/items:
+    post:
+      tags:
+      - content-plans
+      summary: Add Item
+      operationId: add_item_api_content_plans__plan_id__items_post
+      parameters:
+      - name: plan_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Plan Id
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          title: Authorization
+          nullable: true
+          type: string
+      - name: x-dev-user
+        in: header
+        required: false
+        schema:
+          title: X-Dev-User
+          nullable: true
+          type: string
+      - name: x-company-id
+        in: header
+        required: false
+        schema:
+          title: X-Company-Id
+          nullable: true
+          type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ItemIn'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      x-status: implemented
+
+  /api/content-plans/items/{item_id}:
+    patch:
+      tags:
+      - content-plans
+      summary: Edit Item
+      operationId: edit_item_api_content_plans_items__item_id__patch
+      parameters:
+      - name: item_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Item Id
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          title: Authorization
+          nullable: true
+          type: string
+      - name: x-dev-user
+        in: header
+        required: false
+        schema:
+          title: X-Dev-User
+          nullable: true
+          type: string
+      - name: x-company-id
+        in: header
+        required: false
+        schema:
+          title: X-Company-Id
+          nullable: true
+          type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ItemEdit'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      x-status: implemented
+    delete:
+      tags:
+      - content-plans
+      summary: Delete Item
+      operationId: delete_item_api_content_plans_items__item_id__delete
+      parameters:
+      - name: item_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Item Id
+      - name: version
+        in: query
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+          title: Version
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          title: Authorization
+          nullable: true
+          type: string
+      - name: x-dev-user
+        in: header
+        required: false
+        schema:
+          title: X-Dev-User
+          nullable: true
+          type: string
+      - name: x-company-id
+        in: header
+        required: false
+        schema:
+          title: X-Company-Id
+          nullable: true
+          type: integer
       responses:
         '200':
           description: Successful Response

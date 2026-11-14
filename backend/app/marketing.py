@@ -12,7 +12,7 @@ from . import agent, cache, jobs, limits, post_analytics
 from .config import settings
 from .db import utcnow
 from .llm import get_llm
-from .models import (Company, Competitor, ContentPlanItem, MarketingDocument, MarketingHypothesis,
+from .models import (Company, Competitor, MarketingPlanItem, MarketingDocument, MarketingHypothesis,
                      MarketingSettings, Post, SocialAccount, SocialMetricSnapshot, Task, TaskRun)
 
 KINDS = {"research", "competitors", "hypotheses", "strategy", "plan", "report", "sync"}
@@ -294,7 +294,7 @@ async def save_result(session, task, run, data, sources, metrics):
             session.add(MarketingHypothesis(company_id=task.company_id, document_id=document.id, **item))
     if task.kind == "plan":
         for item in data.get("plan", []):
-            session.add(ContentPlanItem(company_id=task.company_id, document_id=document.id, **item))
+            session.add(MarketingPlanItem(company_id=task.company_id, document_id=document.id, **item))
     if task.kind == "research":
         known = set((await session.execute(select(Competitor.name).where(Competitor.company_id == task.company_id))).scalars())
         allowed = {s["url"] for s in sources}

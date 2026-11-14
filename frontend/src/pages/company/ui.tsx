@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '@/entities/marketing';
 import { useLoad } from '@/shared/lib';
 
+import { Profile } from '@/widgets/profile';
 import { Log } from '@/widgets/audit-log';
 import { Posts } from '@/widgets/posts';
 import { PostAnalytics } from '@/widgets/post-analytics';
@@ -18,6 +19,7 @@ const TABS = [
   'Обзор',
   'Маркетолог',
   'ИИ',
+  'Профиль',
   'Знания',
   'Бренд',
   'Каналы',
@@ -85,7 +87,8 @@ export function CompanyPage({
             />
           )}
         </TabsContent>
-        {!limitsEditable && <TabsContent value="ИИ"><AgentChat /></TabsContent>}
+        <TabsContent value="ИИ"><AgentChat /></TabsContent>
+        <TabsContent value="Профиль"><Profile id={id} /></TabsContent>
         <TabsContent value="Знания">
           <Knowledge id={id} />
         </TabsContent>
