@@ -80,7 +80,8 @@ def _font(brand: Brand, role: str, size: int) -> ImageFont.FreeTypeFont | ImageF
     default = DEFAULT_FONTS / ("Intro.ttf" if role == "heading" else "avenirnextcyr-regular.ttf")
     # запасные шрифты с кириллицей (в Docker-образе ставится fonts-dejavu-core)
     dejavu = Path("/usr/share/fonts/truetype/dejavu") / ("DejaVuSans-Bold.ttf" if role == "heading" else "DejaVuSans.ttf")
-    for path in (uploaded, default, dejavu):
+    mac = Path("/System/Library/Fonts/Supplemental") / ("Arial Bold.ttf" if role == "heading" else "Arial.ttf")
+    for path in (uploaded, default, dejavu, mac):
         if path and Path(path).exists():
             try:
                 return ImageFont.truetype(str(path), size)

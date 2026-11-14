@@ -102,7 +102,7 @@ async def catalog(ctx: Ctx = Depends(get_ctx)):
 
 @router.get("")
 async def list_tasks(ctx: Ctx = Depends(get_ctx), session: AsyncSession = Depends(get_session)):
-    rows = (await session.execute(select(Task).where(Task.company_id == ctx.require_company(), Task.deleted.is_(False)).order_by(Task.id.desc()))).scalars().all()
+    rows = (await session.execute(select(Task).where(Task.company_id == ctx.require_company(), Task.deleted.is_(False), Task.manual.is_(False)).order_by(Task.id.desc()))).scalars().all()
     return await tasks_out(session, rows)
 
 
@@ -138,6 +138,8 @@ async def get_task(task_id: int, ctx: Ctx = Depends(get_ctx), session: AsyncSess
 @router.patch("/{task_id}")
 async def toggle_task(task_id: int, body: TaskToggle, ctx: Ctx = Depends(get_ctx), session: AsyncSession = Depends(get_session)):
     task = await task_for(session, ctx, task_id)
+    if task.kind == "report" and task.schedule_kind == "weekly" and not ctx.can_approve:
+        raise HTTPException(403, "Расписание отчётов меняет администратор компании")
     task.active = body.active
     await session.commit()
     await services.audit(session, task.company_id, ctx.user.id, "task.toggled", f"task={task.id} active={body.active}")
@@ -147,6 +149,8 @@ async def toggle_task(task_id: int, body: TaskToggle, ctx: Ctx = Depends(get_ctx
 @router.delete("/{task_id}")
 async def delete_task(task_id: int, ctx: Ctx = Depends(get_ctx), session: AsyncSession = Depends(get_session)):
     task = await task_for(session, ctx, task_id)
+    if task.kind == "report" and task.schedule_kind == "weekly" and not ctx.can_approve:
+        raise HTTPException(403, "Расписание отчётов меняет администратор компании")
     task.active, task.deleted = False, True
     await session.execute(update(TaskRun).where(TaskRun.task_id == task.id, TaskRun.status == "pending").values(status="cancelled", finished_at=utcnow()))
     await session.commit()

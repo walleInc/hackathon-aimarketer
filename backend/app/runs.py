@@ -213,6 +213,7 @@ async def deliver(delivery_id):
 
 
 async def sync_task_results():
+    from . import marketing
     try:
         async with cache.lock("task-result-sync", ttl_sec=120):
             async with SessionLocal() as session:
@@ -224,7 +225,9 @@ async def sync_task_results():
                     task = await session.get(Task, result.task_id)
                     if not task:
                         continue
-                    run = AgentRun(company_id=result.company_id, user_id=task.created_by, prompt=task.prompt,
+                    workspace = task.kind in marketing.KINDS
+                    run = AgentRun(company_id=result.company_id, user_id=None if task.kind == "report" else task.created_by,
+                        prompt=marketing.task_prompt(task) if workspace else task.prompt,
                         kind="scheduled", task_id=task.id, task_run_id=result.id, post_id=result.post_id,
                         status="running", started_at=result.started_at)
                     session.add(run)
@@ -232,7 +235,7 @@ async def sync_task_results():
                     session.add(Message(company_id=run.company_id, user_id=run.user_id, run_id=run.id,
                                         role="user", content=run.prompt))
                     post = await session.get(Post, result.post_id) if result.post_id else None
-                    text = post_result(post) if post else result.result or result.error
+                    text = marketing.task_result(task, result) if workspace else post_result(post) if post else result.result or result.error
                     await finish(session, run, text, result.error if result.status == "failed" else "")
                     await enqueue_deliveries(session, run.id)
     except cache.LockBusy:

@@ -11,7 +11,7 @@ from . import branding, cache, context_files, jobs, limits, memory, platforms, s
 from .config import settings
 from .llm import get_llm
 from .media import media_path
-from .models import Company, KnowledgeDoc, Post, Task, UsageCost, User
+from .models import Company, KnowledgeDoc, MarketingDocument, MarketingSettings, Post, Task, UsageCost, User
 
 KNOWLEDGE_LIMIT = 8000
 
@@ -88,6 +88,14 @@ async def _build_prompt(session: AsyncSession, company_id: int) -> str:
     files = await context_files.load_context(company_id)  # файлы организации из Yandex S3: {organization_id}/{файл}
     if files:
         knowledge = f"{knowledge}\n\n{files}" if knowledge else files
+    marketing_profile = await session.get(MarketingSettings, company_id)
+    if marketing_profile:
+        knowledge += f"\n\nМаркетинговый контекст: ниша {marketing_profile.niche}; география {marketing_profile.geography}; цели {marketing_profile.goals}"
+    strategy = (await session.execute(select(MarketingDocument).where(
+        MarketingDocument.company_id == company_id, MarketingDocument.kind == "strategy",
+        MarketingDocument.approved_at.is_not(None)).order_by(MarketingDocument.approved_at.desc(), MarketingDocument.id.desc()).limit(1))).scalar_one_or_none()
+    if strategy:
+        knowledge += "\n\nУтверждённая маркетинговая стратегия (цели и предложения, не факты о продукте):\n" + strategy.data[:8000]
     return SYSTEM.format(
         name=company.name, description=company.description or "—", style=company.brand_style or "—",
         rules=company.brand_rules or "—", knowledge=knowledge or "(пока пусто)",

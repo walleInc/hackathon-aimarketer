@@ -1,0 +1,31 @@
+import type { Measurement, MetricName } from './types';
+
+export type MarketingKind = 'research' | 'competitors' | 'hypotheses' | 'strategy' | 'plan' | 'report' | 'sync';
+export type MarketingProfile = { niche: string; geography: string; goals: string };
+export type Competitor = { id: number; name: string; website: string; telegram: string; notes: string; confirmed: boolean };
+export type HypothesisStatus = 'proposed' | 'running' | 'confirmed' | 'rejected' | 'insufficient' | 'archived';
+export type Hypothesis = { id: number; document_id: number; title: string; evidence: string; action: string;
+  metric: string; success: string; duration_days: number; status: HypothesisStatus; result: string; task_id: number | null; updated_at: string };
+export type PlanItem = { id: number; document_id: number; topic: string; format: string; rubric: string; rationale: string; day: number; task_id: number | null };
+export type MarketingDocument = { id: number; run_id: number; kind: MarketingKind; created_at: string; approved_at: string | null;
+  sources: { title: string; url: string }[]; metrics: Record<string, unknown>;
+  data: { summary: string; findings: { title: string; detail: string; source_urls: string[] }[]; actions: string[]; limitations: string[];
+    goals?: string[]; audiences?: string[]; positioning?: string; channels?: string[]; rubrics?: string[]; kpis?: string[] } };
+export type WorkspacePost = { id: string; post_id: number | null; channel: string; external_id: string; published_at: string | null;
+  text: string; format: string; metrics: Record<MetricName, Measurement>; reaction_rate: number | null };
+export type ChannelSnapshot = { channel: string; collected_at: string; subscribers: number | null; subscribers_change: number | null;
+  views: number | null; reactions: number | null; forwards: number | null; engagement_percent: number | null; truncated: boolean; comparison_note: string };
+export type MarketingState = {
+  profile: MarketingProfile;
+  permissions: { write: boolean; manage: boolean };
+  sources: { web_search: boolean; demo: boolean };
+  channels: { id: number; channel_id: string }[];
+  competitors: Competitor[]; documents: MarketingDocument[]; hypotheses: Hypothesis[]; plan: PlanItem[];
+  runs: { id: number; task_id: number; kind: string; status: string; error: string; post_id: number | null; started_at: string | null; finished_at: string | null }[];
+  schedule: { id: number; active: boolean; timezone: string; local_time: string; next_run: string | null } | null;
+  analytics: { days: number; channel: string; posts: WorkspacePost[]; totals: Record<MetricName, { value: number | null; measured: number }>;
+    formats: { channel: string; format: string; posts: number; median_reaction_rate: number; comparable: boolean }[];
+    sample_size: number; collected_at: string | null; limitations: string[];
+    channel_snapshots: ChannelSnapshot[]; snapshot_history: ChannelSnapshot[];
+    conversions: { status: string; leads: null; sales: null; revenue: null } };
+};

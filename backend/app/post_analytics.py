@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .db import utcnow
-from .models import AnalyticsAdvice, Post, PostMetrics
+from .models import AnalyticsAdvice, MetricObservation, Post, PostMetrics
 
 METRICS = ("views", "reactions", "forwards", "comments")
 MAX_POSTS = 200
@@ -37,6 +37,7 @@ async def record_metrics(
                 await session.flush()
         except IntegrityError:  # параллельное первое измерение
             pass
+    accepted = {}
     for field, value in values.items():
         if field not in METRICS or isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 2_000_000_000:
             raise ValueError("Показатели должны быть целыми числами от 0 до 2 млрд")
@@ -57,6 +58,11 @@ async def record_metrics(
             execution_options={"synchronize_session": False})
         if result.rowcount != 1 and reject_stale:
             raise ValueError("Уже есть более свежее измерение. Обновите статистику и повторите")
+        if result.rowcount == 1:
+            accepted[field] = value
+    if accepted:
+        session.add(MetricObservation(company_id=post.company_id, post_id=post.id,
+            values=json.dumps(accepted), observed_at=observed_at, source=source))
 
 
 def post_row(post: Post, metrics: PostMetrics | None) -> dict:

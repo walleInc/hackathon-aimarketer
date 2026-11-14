@@ -7,6 +7,26 @@ from .base import LLMResult
 class StubProvider:
     async def complete(self, system: str, messages: list[dict], json_mode: bool = False) -> LLMResult:
         last = messages[-1]["content"] if messages else ""
+        if "MARKETING_WORKSPACE" in system:
+            context = json.loads(last)
+            sources = context.get("sources", [])
+            kind = context["task"]
+            data = {"summary": "Демонстрационный анализ. Для содержательных выводов подключите AI-провайдера и соберите данные.",
+                    "findings": [{"title": s["title"], "detail": "Источник найден. Содержание требует проверки аналитиком.", "source_urls": [s["url"]]} for s in sources[:5]],
+                    "actions": ["Собрать сопоставимые измерения публикаций через 48 часов."],
+                    "limitations": ["Демонстрационный AI-провайдер: рекомендации не являются результатом исследования рынка."]}
+            if kind == "hypotheses":
+                data["hypotheses"] = [{"title": "Проверить подачу с вопросом аудитории", "evidence": f"В выборке {context['analytics']['sample_size']} публикаций. Эффект ещё не проверен.",
+                    "action": "Подготовить два сопоставимых поста одной рубрики, один завершить вопросом.", "metric": "Реакции / просмотры через 48 часов",
+                    "success": "Цель эксперимента: рост доли реакций. При малой выборке зафиксировать недостаток данных.", "duration_days": 14}]
+            if kind == "strategy":
+                data.update(goals=["Накопить измеримые результаты продвижения"], audiences=["Уточнить сегменты по знаниям компании"],
+                    positioning="Проект: опираться на подтверждённые преимущества компании", channels=["Telegram"],
+                    rubrics=["Продукт", "Экспертные советы", "Вопросы аудитории"], kpis=["Просмотры и доля реакций через 48 часов"])
+            if kind == "plan":
+                data["plan"] = [{"topic": f"Тема дня {i}: полезный материал о компании", "format": "Текст и изображение", "rubric": "Экспертные советы",
+                    "rationale": "Демонстрационное предложение; факты взять из базы знаний", "day": i} for i in range(1, 8)]
+            return LLMResult(text=json.dumps(data, ensure_ascii=False), tokens=100)
         if "КОНТЕНТ_ПЛАН" in last:
             count = int(re.search(r"Число задач: (\d+)", last).group(1))
             return LLMResult(text=json.dumps({"items": [{"title": f"Идея {i + 1}", "description": f"Расскажите о продукте: полезный совет {i + 1} с учётом фактов компании."} for i in range(count)]}, ensure_ascii=False))

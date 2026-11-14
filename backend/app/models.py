@@ -112,6 +112,7 @@ class Task(Base):
     channel_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
     deleted: Mapped[bool] = mapped_column(Boolean, default=False)
+    manual: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class TaskRun(Base):
@@ -318,3 +319,97 @@ class AnalyticsAdvice(Base):
     data_hash: Mapped[str] = mapped_column(String(64))
     text: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class MarketingSettings(Base):
+    __tablename__ = "marketing_settings"
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), primary_key=True)
+    niche: Mapped[str] = mapped_column(String(500), default="")
+    geography: Mapped[str] = mapped_column(String(300), default="")
+    goals: Mapped[str] = mapped_column(Text, default="")
+    report_task_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class Competitor(Base):
+    __tablename__ = "competitors"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    website: Mapped[str] = mapped_column(String(1000), default="")
+    telegram: Mapped[str] = mapped_column(String(300), default="")
+    notes: Mapped[str] = mapped_column(Text, default="")
+    confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class MarketingDocument(Base):
+    """Versioned structured research/report; a run can save only one result."""
+    __tablename__ = "marketing_documents"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    run_id: Mapped[int] = mapped_column(ForeignKey("task_runs.id"), unique=True)
+    kind: Mapped[str] = mapped_column(String(40), index=True)
+    data: Mapped[str] = mapped_column(Text)
+    sources: Mapped[str] = mapped_column(Text, default="[]")
+    metrics: Mapped[str] = mapped_column(Text, default="{}")
+    approved_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class MarketingHypothesis(Base):
+    __tablename__ = "marketing_hypotheses"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    document_id: Mapped[int] = mapped_column(ForeignKey("marketing_documents.id"))
+    title: Mapped[str] = mapped_column(String(300))
+    evidence: Mapped[str] = mapped_column(Text)
+    action: Mapped[str] = mapped_column(Text)
+    metric: Mapped[str] = mapped_column(String(300))
+    success: Mapped[str] = mapped_column(Text)
+    duration_days: Mapped[int] = mapped_column(Integer, default=14)
+    status: Mapped[str] = mapped_column(String(40), default="proposed")
+    result: Mapped[str] = mapped_column(Text, default="")
+    task_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class MarketingPlanItem(Base):
+    __tablename__ = "marketing_plan_items"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    document_id: Mapped[int] = mapped_column(ForeignKey("marketing_documents.id"))
+    topic: Mapped[str] = mapped_column(String(500))
+    format: Mapped[str] = mapped_column(String(100))
+    rubric: Mapped[str] = mapped_column(String(200))
+    rationale: Mapped[str] = mapped_column(Text)
+    day: Mapped[int] = mapped_column(Integer)
+    task_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class SocialMetricSnapshot(Base):
+    """Telegram counters at a point in time; includes posts created outside this app."""
+    __tablename__ = "social_metric_snapshots"
+    __table_args__ = (UniqueConstraint("company_id", "channel_id", "external_id", "observed_at"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    channel_id: Mapped[str] = mapped_column(String(200), index=True)
+    external_id: Mapped[str] = mapped_column(String(200))
+    published_at: Mapped[datetime] = mapped_column(DateTime)
+    observed_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    text: Mapped[str] = mapped_column(Text, default="")
+    format: Mapped[str] = mapped_column(String(30), default="text")
+    views: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reactions: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    forwards: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    comments: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class MetricObservation(Base):
+    __tablename__ = "metric_observations"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    post_id: Mapped[int] = mapped_column(ForeignKey("posts.id"), index=True)
+    values: Mapped[str] = mapped_column(Text)
+    observed_at: Mapped[datetime] = mapped_column(DateTime)
+    source: Mapped[str] = mapped_column(String(30))
