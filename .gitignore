@@ -1,5 +1,6 @@
 # Секреты и локальные данные
 .env
+.env.*
 *.env
 *.db
 backend/media/

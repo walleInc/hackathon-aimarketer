@@ -7,15 +7,20 @@ set -euo pipefail
 TAG="${1:?usage: remote-deploy.sh <image-tag>}"
 cd "$HOME/aimarketer"
 
+if [ ! -r .env.temp ]; then
+  echo "Ошибка: создайте ~/aimarketer/.env.temp с настройками приложения и POSTGRES_PASSWORD" >&2
+  exit 1
+fi
+
 PREV="$(cat .current_tag 2>/dev/null || true)"
 docker image inspect "aimarketer:$TAG" >/dev/null
 
 export IMAGE_TAG="$TAG"
-if ! docker compose up -d --remove-orphans --wait --wait-timeout 150; then
+if ! docker compose --env-file .env.temp up -d --remove-orphans --wait --wait-timeout 150; then
   echo "::error::Версия $TAG не прошла healthcheck, откат на '${PREV:-нет предыдущей}'"
-  docker compose logs --tail 60 app || true
+  docker compose --env-file .env.temp logs --tail 60 app || true
   if [ -n "$PREV" ] && docker image inspect "aimarketer:$PREV" >/dev/null 2>&1; then
-    IMAGE_TAG="$PREV" docker compose up -d --wait --wait-timeout 150 || true
+    IMAGE_TAG="$PREV" docker compose --env-file .env.temp up -d --wait --wait-timeout 150 || true
   fi
   docker rmi "aimarketer:$TAG" >/dev/null 2>&1 || true
   exit 1

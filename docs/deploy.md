@@ -21,7 +21,7 @@
 
 ## Устройство на сервере
 
-- `~/aimarketer/` — `docker-compose.yml` (из `docker-compose.prod.yml`), `.env` (секреты, только на сервере), `remote-deploy.sh`,
+- `~/aimarketer/` — `docker-compose.yml` (из `docker-compose.prod.yml`), `.env.temp` (секреты, только на сервере), `remote-deploy.sh`,
   `caddy/aimarketer.caddy`, `.current_tag`.
 - Общий Caddy (`~/app`, контейнер `app-caddy-1`) выдаёт HTTPS-сертификаты и проксирует на `aimarketer-app:8000`
   по сети `aimarketer_net`; сайты подключаются сниппетами из `conf.d`.
@@ -31,15 +31,25 @@
 
 ```bash
 docker network create aimarketer_net
-# ~/aimarketer/.env: BOT_TOKEN, ADMIN_IDS, PUBLIC_URL, WEBHOOK_SECRET, SECRET_KEY,
+# ~/aimarketer/.env.temp: BOT_TOKEN, ADMIN_IDS, PUBLIC_URL, WEBHOOK_SECRET, SECRET_KEY,
 # POSTGRES_PASSWORD, LLM_PROVIDER, OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL, DEV_AUTH_BYPASS=false
 ```
+
+При переходе с `.env` скопируйте его в `.env.temp` и сохраните прежний `POSTGRES_PASSWORD`:
+
+```bash
+cd ~/aimarketer
+cp -n .env .env.temp
+chmod 600 .env.temp
+```
+
+`env_file` передаёт настройки приложению, а `--env-file .env.temp` задаёт значения для подстановки в Compose (включая пароль Postgres).
 
 Бренд-пакет (логотипы, шрифты клиента) в git не хранится. Загрузка и создание компании:
 
 ```bash
 scp -r brand_pack deploy@<host>:aimarketer/brand_pack
-cd ~/aimarketer && IMAGE_TAG=$(cat .current_tag) docker compose run --rm \
+cd ~/aimarketer && IMAGE_TAG=$(cat .current_tag) docker compose --env-file .env.temp run --rm \
   -v "$PWD/brand_pack:/pack:ro" -e BRAND_PACK_DIR=/pack app python -m scripts.seed_brand @channel
 ```
 
@@ -47,7 +57,7 @@ cd ~/aimarketer && IMAGE_TAG=$(cat .current_tag) docker compose run --rm \
 
 ```bash
 cd ~/aimarketer
-docker compose ps && docker compose logs --tail 100 app
+docker compose --env-file .env.temp ps && docker compose --env-file .env.temp logs --tail 100 app
 cat .current_tag                      # текущая версия
 ```
 
