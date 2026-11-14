@@ -117,3 +117,27 @@ export type PostAnalytics = {
   recommendations: { title: string; text: string; post_ids: number[] }[];
   ai_advice: AnalyticsAdvice | null;
 };
+export type AgentRun = {
+  id: number;
+  kind: string;
+  prompt: string;
+  status: 'queued' | 'running' | 'completed' | 'failed';
+  result: string;
+  image_url: string;
+  error: string;
+  post_id: number | null;
+  parent_run_id: number | null;
+  created_at: string;
+};
+
+export type ChatMessage = {
+  id: number;
+  role: 'user' | 'assistant';
+  content: string;
+  created_at: string;
+  run_id: number | null;
+  post_id: number | null;
+  image_url: string;
+};
+
+export type ChatPage = { items: ChatMessage[]; next_cursor: number | null };

@@ -3,15 +3,13 @@ import json
 
 from .base import LLMResult
 
-POST_WORDS = ("пост", "публикац", "напиши", "создай", "подготов")
-
-
 class StubProvider:
     async def complete(self, system: str, messages: list[dict], json_mode: bool = False) -> LLMResult:
         last = messages[-1]["content"] if messages else ""
         if "ПРОВЕРКА_БРЕНДА" in last:
             return LLMResult(text=json.dumps({"ok": True, "issues": [], "fixed_text": ""}))
-        if json_mode and any(w in last.lower() for w in POST_WORDS):
+        from ..agent import _explicit_creation_request
+        if json_mode and _explicit_creation_request(last):
             payload = {
                 "action": "create_post",
                 "platform": "telegram",

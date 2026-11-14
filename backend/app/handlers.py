@@ -7,7 +7,7 @@ from . import agent, cache, context_files, limits, scheduler, services, storage
 from .config import settings
 from .db import SessionLocal, utcnow
 from .jobs import JobCtx, PermanentFailure, RetryLater, handler, org_slot
-from .models import Company, Post, Task, UsageCost
+from .models import AgentRun, Company, Post, Task, UsageCost
 from .workflow import PostStatus
 
 log = logging.getLogger(__name__)
@@ -69,11 +69,37 @@ async def tick(data: dict, ctx: JobCtx):
 
 # ---------- ai-generation ----------
 
+@handler("ai-generation", "agent_run")
+async def agent_run(data: dict, ctx: JobCtx):
+    from . import runs
+    async with SessionLocal() as session:
+        try:
+            run = await session.get(AgentRun, int(data["run_id"]))
+            if run is None:
+                return {"skipped": True}
+            async with org_slot("ai-generation", run.company_id):
+                run = await runs.execute(session, run.id)
+            return {"run_id": run.id, "status": run.status, "post_id": run.post_id} if run else {"skipped": True}
+        except cache.LockBusy:
+            raise RetryLater(3000)
+
+
+@handler("notifications", "run_result")
+async def run_result(data: dict, ctx: JobCtx):
+    from . import runs
+    try:
+        await runs.deliver(int(data["delivery_id"]))
+    except cache.LockBusy:
+        raise RetryLater(3000)
+
 @handler("ai-generation", "run_task")
 async def run_task(data: dict, ctx: JobCtx):
     from .task_execution import execute_run
     if "run_id" in data:
-        return await execute_run(int(data["run_id"]))
+        result = await execute_run(int(data["run_id"]))
+        from . import runs
+        await runs.sync_task_results()
+        return result
     # Jobs queued by the previous application version remain executable.
     async with SessionLocal() as session:
         task = await session.get(Task, int(data["task_id"]))

@@ -10,17 +10,45 @@ from aiogram.types import (
 )
 from sqlalchemy import select
 
-from . import agent, cache, limits, post_images, services
+from . import cache, limits, post_images, runs, services
 from .config import settings
 from .db import SessionLocal
 from .media import media_path
-from .models import Company, Invite, Post, User
+from .models import AgentRun, Company, Invite, Post, User
 from .workflow import InvalidTransition
 
 log = logging.getLogger(__name__)
 
 bot: Bot | None = Bot(settings.bot_token) if settings.bot_token else None
 dp = Dispatcher()
+
+
+def split_text(text: str, limit: int = 3500) -> list[str]:
+    """Telegram counts UTF-16 code units; 3500 also leaves room for emoji."""
+    chunks, current, units = [], [], 0
+    for char in text:
+        size = 2 if ord(char) > 0xFFFF else 1
+        if units + size > limit:
+            chunks.append("".join(current))
+            current, units = [], 0
+        current.append(char)
+        units += size
+    if current:
+        chunks.append("".join(current))
+    return chunks or ["Готово."]
+
+
+async def queue_request(session, user, message, text, *, reference=None, kind="message", post=None, version=None):
+    url = post_images.save_upload(reference) if reference is not None else ""
+    # The latest personal result anchors short follow-ups such as 'why this wording?'.
+    parent_id = (await session.execute(select(AgentRun.id).where(
+        AgentRun.company_id == user.company_id, AgentRun.user_id == user.id,
+        AgentRun.status.in_(["completed", "failed"]),
+    ).order_by(AgentRun.id.desc()).limit(1))).scalar_one_or_none()
+    run = await runs.create(session, user.company_id, user.id, text, kind=kind, parent_run_id=parent_id,
+                            post_id=post.id if post else None, expected_version=version, reference_url=url)
+    await message.answer(f"Задача #{run.id} принята. Сообщу результат после завершения.")
+    await runs.dispatch(run.id)
 
 
 def _webapp_markup() -> InlineKeyboardMarkup | None:
@@ -267,15 +295,7 @@ async def on_post_image(message: Message) -> None:
             except ValueError as exc:
                 await message.answer(str(exc))
                 return
-            await message.answer("Готовлю пост с изображением по референсу…")
-            try:
-                result = await agent.handle_message(
-                    session, user.company_id, user, message.caption.strip(), reference=reference,
-                )
-            except ValueError as exc:
-                await message.answer(str(exc))
-                return
-            await message.answer(result.reply)
+            await queue_request(session, user, message, message.caption.strip(), reference=reference)
             return
         if user.role != "approver":
             await message.answer("Менять изображение может только администратор компании.")
@@ -339,13 +359,13 @@ async def on_text(message: Message) -> None:
                     post.check_notes = "Текст изменён вручную; требуется проверка согласующего"
                     await services.edit_post_text(session, post, message.text, user.id, int(version))
                 else:
-                    await message.answer("Генерирую новую картинку…")
-                    await agent.regenerate_post_image(session, post, message.text, user.id, int(version))
+                    await queue_request(session, user, message, message.text, kind="image", post=post, version=int(version))
             except (services.NotFound, InvalidTransition, ValueError, limits.LimitExceeded, cache.RateLimited, cache.LockBusy) as e:
                 await message.answer(str(e) if not isinstance(e, cache.LockBusy) else "Картинка уже генерируется")
                 return
             await cache.clear_state(user.id)
-            await message.answer("Обновил материал и отправил на повторное согласование.")
+            if action == "edit_text":
+                await message.answer("Обновил материал и отправил на повторное согласование.")
             return
         if state.startswith("revise:"):  # комментарий к доработке
             post_id = int(state.split(":")[1])
@@ -357,16 +377,13 @@ async def on_text(message: Message) -> None:
                     return
                 try:
                     services.require_editable(post)
-                    await agent.revise_post(session, post, message.text, user.id)
+                    await queue_request(session, user, message, message.text, kind="revise", post=post, version=post.version)
                 except (limits.LimitExceeded, InvalidTransition) as e:
                     await cache.set_state(user.id, state)  # можно повторить комментарий позже
                     await message.answer(str(e))
                     return
-                await message.answer("Доработал и отправил на повторное согласование.")
                 return
-        await message.bot.send_chat_action(message.chat.id, "typing")
-        result = await agent.handle_message(session, user.company_id, user, message.text)
-        await message.answer(result.reply)
+        await queue_request(session, user, message, message.text)
 
 
 @dp.message_reaction_count()

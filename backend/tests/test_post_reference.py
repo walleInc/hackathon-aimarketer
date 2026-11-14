@@ -53,15 +53,22 @@ async def test_invalid_reference_rejected_before_llm(client, monkeypatch):
 
 
 async def test_telegram_member_can_attach_reference(env, monkeypatch):
-    handle = AsyncMock(return_value=agent.AgentResult(reply='Готово', post_id=1))
-    monkeypatch.setattr(agent, 'handle_message', handle)
+    from app import runs
+    from app.db import SessionLocal
+    from app.models import AgentRun
+    from sqlalchemy import select
+    dispatch = AsyncMock()
+    monkeypatch.setattr(runs, 'dispatch', dispatch)
     async def download(file, destination):
         destination.write(picture())
     message = SimpleNamespace(from_user=SimpleNamespace(id=101), media_group_id=None, caption='Создай пост', photo=[SimpleNamespace(file_size=100)], bot=SimpleNamespace(download=download), answer=AsyncMock())
     await tg.on_post_image(message)
-    assert handle.await_args.args[3] == 'Создай пост'
-    assert handle.await_args.kwargs['reference']
-    message.answer.assert_any_await('Готово')
+    dispatch.assert_awaited_once()
+    async with SessionLocal() as session:
+        run = (await session.execute(select(AgentRun))).scalar_one()
+        assert run.prompt == 'Создай пост' and run.status == 'queued'
+        assert media_path(run.reference_url).is_file()
+    assert 'Сообщу результат' in message.answer.await_args.args[0]
 
 
 async def test_reference_failure_does_not_create_unrelated_card(client, monkeypatch):
@@ -81,3 +88,24 @@ async def test_telegram_rejects_album(env, monkeypatch):
     await tg.on_post_image(message)
     handle.assert_not_awaited()
     assert 'без альбома' in message.answer.await_args.args[0]
+
+
+async def test_async_reference_run_persists_input_and_result(client, monkeypatch):
+    from app import post_images
+    from app.db import SessionLocal
+    from app.models import AgentRun
+    provider = StubProvider()
+    async def generate(prompt, reference=None):
+        assert reference
+        return post_images.save_upload(reference)
+    provider.generate_image = AsyncMock(side_effect=generate)
+    monkeypatch.setattr(agent, 'get_llm', lambda: provider)
+    response = await client.post('/api/agent/runs/reference', headers={'X-Dev-User': '101'},
+        data={'text': 'Создай пост о товаре'}, files={'reference': ('ref.png', picture(), 'image/png')})
+    assert response.status_code == 202
+    rid = response.json()['id']
+    completed = (await client.get(f'/api/agent/runs/{rid}', headers={'X-Dev-User': '101'})).json()
+    assert completed['status'] == 'completed' and completed['post_id'] and completed['image_url']
+    async with SessionLocal() as session:
+        run = await session.get(AgentRun, rid)
+        assert media_path(run.reference_url).is_file()

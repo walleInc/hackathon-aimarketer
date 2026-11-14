@@ -12,6 +12,8 @@ __pycache__/
 *.pyc
 .pytest_cache/
 node_modules/
+.npm-cache/
+.playwright-browsers/
 frontend/dist/
 
 # Материалы клиента: репозиторий публичный, бренд-пакет и брендбук хранятся вне git
@@ -22,3 +24,5 @@ backend/brand_packs/
 
 # Инструменты
 .claude/
+
+.merge-test-tmp/

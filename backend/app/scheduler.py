@@ -9,7 +9,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy import select, update, or_
 from sqlalchemy.exc import IntegrityError
 
-from . import jobs, services
+from . import jobs, runs, services
 from .config import settings
 from .db import SessionLocal, utcnow
 from .models import Task, TaskRun
@@ -83,6 +83,7 @@ async def run_due_tasks() -> int:
 
 async def run_tick() -> None:
     await run_due_tasks()
+    await runs.maintain()
     async with SessionLocal() as session:
         await services.publish_due(session)
 
