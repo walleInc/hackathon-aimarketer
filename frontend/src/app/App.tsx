@@ -1,11 +1,13 @@
-import { Card } from '@/shared/ui';
+import { Profile } from '@/widgets/profile';
+import { Posts } from '@/widgets/posts';
+import { Card, Tabs, TabsList, TabsTrigger, TabsContent } from '@/shared/ui';
 import { useEffect, useState } from 'react';
 import { api, type Me } from '@/entities/marketing';
 import { Admin } from './admin-layout';
 import { Tasks } from '@/widgets/tasks';
 import { AgentChat } from '@/widgets/agent-chat';
 
-/** Company staff share their personal dialogue between Telegram and the cabinet. */
+/** Mini App: кабинет компании и личный профиль с общими планами, задачами и постами. */
 export default function App() {
   const [me, setMe] = useState<Me | null>(null);
   const [error, setError] = useState('');
@@ -37,7 +39,10 @@ export default function App() {
     return <Admin companyId={me.company.id} ownerView={false} />;
 
   if (me.role === 'member' && me.company) {
-    return <div className="app wide"><header className="top"><div className="brand">AI маркетолог · {me.company.name}</div></header><AgentChat /><h1>Задачи</h1><Tasks id={me.company.id} /></div>;
+    return <div className="app wide"><header className="top"><div className="brand">AI маркетолог · {me.company.name}</div></header><Tabs defaultValue="tasks"><TabsList aria-label="Разделы пользователя"><TabsTrigger value="tasks">Задачи</TabsTrigger><TabsTrigger value="profile">Профиль</TabsTrigger><TabsTrigger value="posts">Посты</TabsTrigger></TabsList>
+      <TabsContent value="tasks"><h1>Задачи</h1><Tasks id={me.company.id} /></TabsContent>
+      <TabsContent value="profile"><Profile id={me.company.id} /></TabsContent>
+      <TabsContent value="posts"><h1>Посты</h1><Posts id={me.company.id} canDecide={false} employee /></TabsContent></Tabs></div>;
   }
 
   return (

@@ -535,13 +535,5 @@
 .task-day { display: inline-flex; align-items: center; gap: .35rem; padding: .35rem; }
 .task-run { border-top: 1px solid #475569; padding-top: .8rem; overflow-wrap: anywhere; }
 .task-metrics { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .8rem; max-height: 25rem; overflow-y: auto; }
-.agent-chat { max-width: 900px; margin: 0 auto; }
-.chat-messages { display: grid; gap: 12px; margin: 16px 0; }
-.chat-message { min-width: 0; }
-.chat-user { margin-left: 24px; }
-.chat-assistant { margin-right: 24px; }
-.chat-message time { color: var(--muted-foreground); font-size: .75rem; }
-.chat-text { white-space: pre-wrap; overflow-wrap: anywhere; }
-.chat-image { display: block; width: auto; max-width: 100%; max-height: 360px; object-fit: contain; border-radius: 12px; }
-.chat-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
-.agent-chat form { display: grid; gap: 12px; }
+
+.plan-item { border-top: 1px solid #c5d4d8; padding-top: 1rem; overflow-wrap: anywhere; }

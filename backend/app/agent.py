@@ -7,7 +7,7 @@ from PIL import Image
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from . import branding, cache, context_files, limits, memory, platforms, services
+from . import branding, cache, context_files, jobs, limits, platforms, services
 from .config import settings
 from .llm import get_llm
 from .media import media_path
@@ -326,34 +326,29 @@ async def _regenerate_post_image(
             raise
 
 
-async def handle_message(session: AsyncSession, company_id: int, user: User | None, text: str,
-                         reference: bytes | None = None) -> AgentResult:
-    from . import runs
-    run = await runs.create(session, company_id, user.id if user else None, text)
-    run = await runs.execute_sync(session, run.id, reference=reference)
-    # Preserve the existing validation response for reference generation failures.
-    if reference is not None and run.error:
-        raise ValueError(run.error)
-    return AgentResult(reply=run.error or run.result, post_id=run.post_id, error=run.status == "failed")
-
-
-async def revise_post(session: AsyncSession, post: Post, comment: str, user_id: int | None = None) -> Post:
-    from . import runs
-    run = await runs.create(session, post.company_id, user_id, comment, kind="revise",
-                            post_id=post.id, expected_version=post.version)
-    await runs.execute_sync(session, run.id, propagate=True)
-    await session.refresh(post)
-    return post
-
-
-async def regenerate_post_image(session: AsyncSession, post: Post, prompt: str, user_id: int,
-                                 version: int | None = None) -> Post:
-    from . import runs
-    run = await runs.create(session, post.company_id, user_id, prompt, kind="image",
-                            post_id=post.id, expected_version=post.version if version is None else version)
-    await runs.execute_sync(session, run.id, propagate=True)
-    await session.refresh(post)
-    return post
-
-
-FORCE_POST = "Ответь JSON create_post с готовым post_text, headline, card_text и image_prompt."
+async def generate_post_from_assignment(
+    session: AsyncSession, company_id: int, user: User, text: str, content_plan_item_id: int | None = None,
+) -> Post:
+    """Explicit generation: never route a template assignment into conversational scheduling."""
+    company = await session.get(Company, company_id)
+    await limits.check_token_budget(session, company)
+    await limits.check_post_quota(session, company)
+    await cache.rate_limit(f"ai:org:{company_id}", settings.ai_rate_limit_per_min)
+    await cache.rate_limit(f"ai:user:{user.id}", settings.ai_rate_limit_per_user_per_min)
+    async with jobs.org_slot("ai-generation", company_id):
+        result = await get_llm().complete(await _system_prompt(session, company_id),
+            [{"role": "user", "content": f"Подготовь один готовый пост по заданию: {text}\nНе создавай расписание.\n{FORCE_POST}"}], json_mode=True)
+        await _record_llm(session, company_id, result)
+        data = _parse(result.text)
+        if data.get("action") != "create_post" or not str(data.get("post_text", "")).strip():
+            raise ValueError("ИИ не подготовил пост. Уточните задание и повторите")
+        final_text, notes = await brand_check(session, company, data["post_text"])
+        if not final_text.strip() or len(final_text) > 4096:
+            raise ValueError("ИИ вернул текст недопустимой длины")
+        post = Post(company_id=company_id, created_by=user.id, text=final_text, check_notes=notes,
+                    platform="telegram", image_url=await _make_image(session, company, data, final_text),
+                    content_plan_item_id=content_plan_item_id, content_plan_prompt=text if content_plan_item_id else None)
+        session.add(post)
+        await session.flush()
+        await services.submit_for_approval(session, post)
+        return post
