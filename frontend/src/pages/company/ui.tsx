@@ -5,6 +5,7 @@ import { useLoad } from '@/shared/lib';
 
 import { Log } from '@/widgets/audit-log';
 import { Posts } from '@/widgets/posts';
+import { PostAnalytics } from '@/widgets/post-analytics';
 import { Tasks } from '@/widgets/tasks';
 import { Team } from '@/widgets/team';
 import { Channels } from '@/widgets/channels';
@@ -19,6 +20,7 @@ const TABS = [
   'Команда',
   'Задачи',
   'Посты',
+  'Статистика',
   'Журнал',
 ] as const;
 type TabName = (typeof TABS)[number];
@@ -96,6 +98,9 @@ export function CompanyPage({
         </TabsContent>
         <TabsContent value="Посты">
           <Posts id={id} canDecide={!limitsEditable} />
+        </TabsContent>
+        <TabsContent value="Статистика">
+          <PostAnalytics id={id} canEdit={!limitsEditable} />
         </TabsContent>
         <TabsContent value="Журнал">
           <Log id={id} />

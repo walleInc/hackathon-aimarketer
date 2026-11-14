@@ -1,4 +1,5 @@
 from typing import Literal
+from datetime import timezone
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
@@ -20,6 +21,7 @@ def post_out(p: Post) -> dict:
         "id": p.id, "platform": p.platform, "text": p.text, "image_url": p.image_url, "status": p.status,
         "version": p.version, "scheduled_at": p.scheduled_at, "error": p.error, "created_at": p.created_at,
         "check_notes": p.check_notes,
+        "published_at": p.published_at.replace(tzinfo=timezone.utc) if p.published_at else None,
     }
 
 

@@ -187,7 +187,12 @@ async def _publish_post(session: AsyncSession, post_id: int, notify: bool) -> Po
     try:
         if account is None:
             raise RuntimeError(f"Не подключён аккаунт {post.platform}")
-        post.external_id = await platforms.REGISTRY[post.platform].publish(account, post.text, post.image_url)
+        from .platforms.base import PublishResult
+
+        result = await platforms.REGISTRY[post.platform].publish(account, post.text, post.image_url)
+        post.external_id = result.external_id if isinstance(result, PublishResult) else result
+        post.published_channel_id = result.channel_id if isinstance(result, PublishResult) else account.channel_id
+        post.published_at = utcnow()
         post.status, post.error = S.PUBLISHED.value, ""
         await session.commit()
         await audit(session, post.company_id, None, "post.published", f"post={post.id} ext={post.external_id}")

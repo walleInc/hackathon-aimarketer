@@ -1,6 +1,9 @@
 import { req, headers } from '@/shared/api';
 import type {
   Post,
+  PostAnalytics,
+  AnalyticsAdvice,
+  MetricName,
   Me,
   Company,
   Asset,
@@ -61,6 +64,12 @@ export const api = {
       { text },
     ),
 
+  postAnalytics: (id: number, days: number) =>
+    req<PostAnalytics>('GET', `/api/analytics/posts?days=${days}`, undefined, { 'X-Company-Id': String(id) }),
+  savePostMetrics: (id: number, values: Partial<Record<MetricName, number>>) =>
+    req<{ ok: boolean }>('PUT', `/api/posts/${id}/metrics`, values),
+  recommendPosts: (id: number, days: number) =>
+    req<AnalyticsAdvice>('POST', '/api/analytics/posts/recommendations', { days }, { 'X-Company-Id': String(id) }),
   stats: () => req<Stat[]>('GET', `${A}/stats`),
   companies: () => req<Company[]>('GET', `${A}/companies`),
   createCompany: (c: Partial<Omit<Company, 'id'>> & { name: string }) =>

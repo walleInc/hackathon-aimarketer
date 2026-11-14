@@ -365,3 +365,28 @@ async def on_text(message: Message) -> None:
         await message.bot.send_chat_action(message.chat.id, "typing")
         result = await agent.handle_message(session, user.company_id, user, message.text)
         await message.answer(result.reply)
+
+
+@dp.message_reaction_count()
+async def on_reaction_count(event, event_update=None) -> None:
+    """Telegram присылает абсолютные счётчики: повтор webhook не удваивает реакции."""
+    from datetime import timezone
+    from . import post_analytics
+
+    async with SessionLocal() as session:
+        # Канал фиксируется при публикации: смена настроек компании не меняет принадлежность поста.
+        posts = (await session.execute(select(Post).where(
+            Post.platform == "telegram", Post.status == "published",
+            Post.published_channel_id == str(event.chat.id),
+            Post.external_id == str(event.message_id),
+        ))).scalars().all()
+        observed = event.date.astimezone(timezone.utc).replace(tzinfo=None)
+        for post in posts:
+            try:
+                await post_analytics.record_metrics(session, post, {
+                    "reactions": sum(reaction.total_count for reaction in event.reactions),
+                }, observed, source="telegram", reject_stale=False,
+                    update_id=event_update.update_id if event_update else None)
+            except ValueError:
+                continue
+        await session.commit()

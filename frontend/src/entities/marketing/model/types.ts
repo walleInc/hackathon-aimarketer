@@ -76,3 +76,23 @@ export type AuditItem = {
   details: string;
   created_at: string;
 };
+
+export type MetricName = 'views' | 'reactions' | 'forwards' | 'comments';
+export type Measurement = { value: number | null; observed_at: string | null; source: string };
+export type AnalyticsPost = {
+  id: number; text: string; platform: string; channel_id: string; external_id: string;
+  published_at: string | null; has_image: boolean;
+  metrics: Record<MetricName, Measurement>; reaction_rate: number | null;
+};
+export type AnalyticsAdvice = { text: string; created_at: string; stale: boolean };
+export type PostAnalytics = {
+  period_days: number; published_posts: number; sample_size: number; max_posts: number;
+  unknown_publication_dates: number;
+  summary: Record<MetricName, { total: number | null; measured_posts: number }> & {
+    reaction_rate: number | null; rate_posts: number;
+  };
+  posts: AnalyticsPost[];
+  daily_publications: { date: string; posts: number }[];
+  recommendations: { title: string; text: string; post_ids: number[] }[];
+  ai_advice: AnalyticsAdvice | null;
+};
