@@ -46,7 +46,8 @@ export const api = {
   addContentPlanItem: (id: number, body: ContentPlanItemInput) => req<ContentPlanItem>('POST', `/api/content-plans/${id}/items`, body),
   editContentPlanItem: (id: number, body: ContentPlanItemInput & {version: number}) => req<ContentPlanItem>('PATCH', `/api/content-plans/items/${id}`, body),
   deleteContentPlanItem: (id: number, version: number) => req('DELETE', `/api/content-plans/items/${id}?version=${version}`),
-  generatePost: (prompt: string, content_plan_item_id?: number) => req<Post>('POST', '/api/posts/generate', {prompt, content_plan_item_id}),
+  generatePost: (prompt: string, content_plan_item_id?: number, platform?: string) =>
+    req<Post>('POST', '/api/posts/generate', {prompt, content_plan_item_id, platform: platform || undefined}),
   me: () => req<Me>('GET', '/api/me'),
   posts: (status?: string) =>
     req<Post[]>('GET', `/api/posts${status ? `?status=${status}` : ''}`),
@@ -168,6 +169,7 @@ export const api = {
     return res.json();
   },
   socials: (id: number) => req<Social[]>('GET', `${A}/companies/${id}/social`),
+  platforms: () => req<string[]>('GET', '/api/platforms'),
   addSocial: (id: number, body: { platform: string; channel_id: string; token?: string }) =>
     req('POST', `${A}/companies/${id}/social`, body),
   revokeSocial: (accountId: number) =>

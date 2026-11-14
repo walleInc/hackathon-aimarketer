@@ -110,6 +110,7 @@ class Task(Base):
     weekdays: Mapped[str] = mapped_column(String(30), default="")
     next_run: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
     channel_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    platform: Mapped[str] = mapped_column(String(20), default="")  # пусто = выбрать среди подключённых
     created_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
     deleted: Mapped[bool] = mapped_column(Boolean, default=False)
     manual: Mapped[bool] = mapped_column(Boolean, default=False)

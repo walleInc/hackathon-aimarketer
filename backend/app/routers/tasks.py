@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .. import services
+from .. import platforms, services
 from ..auth import Ctx, get_ctx
 from ..db import get_session, utcnow
 from ..models import Company, SocialAccount, Task, TaskRun
@@ -35,6 +35,7 @@ class TaskIn(BaseModel):
     first_run: datetime | None = None
     first_run_local: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$")
     channel_id: int | None = None
+    platform: str | None = None  # пусто = площадка выбирается среди подключённых
 
     @model_validator(mode="after")
     def validate_schedule(self):
@@ -73,7 +74,7 @@ class TaskToggle(BaseModel):
 def task_out(t: Task) -> dict:
     return {k: getattr(t, k) for k in (
         "id", "kind", "prompt", "interval_minutes", "active", "last_run", "schedule_kind",
-        "timezone", "local_time", "weekdays", "next_run", "channel_id",
+        "timezone", "local_time", "weekdays", "next_run", "channel_id", "platform",
     )}
 
 
@@ -116,11 +117,19 @@ async def create_task(body: TaskIn, ctx: Ctx = Depends(get_ctx), session: AsyncS
         channel = await session.get(SocialAccount, body.channel_id)
         if channel is None or channel.company_id != cid or not channel.active or channel.platform != "telegram":
             raise HTTPException(422, "Выберите активный Telegram-канал компании")
+    if body.platform:
+        if body.platform not in platforms.REGISTRY:
+            raise HTTPException(422, f"Неизвестная площадка: {body.platform}")
+        account = (await session.execute(select(SocialAccount).where(
+            SocialAccount.company_id == cid, SocialAccount.platform == body.platform,
+            SocialAccount.active.is_(True), SocialAccount.analytics_only.is_(False)))).scalars().first()
+        if account is None:
+            raise HTTPException(422, "Площадка не подключена: добавьте канал в «Каналах»")
     task = Task(company_id=cid, kind=body.kind, prompt=body.prompt.strip(),
                 schedule_kind=body.schedule_kind, interval_minutes=body.interval_minutes,
                 timezone=body.timezone, local_time=body.local_time,
                 weekdays=",".join(str(d) for d in sorted(set(body.weekdays))),
-                channel_id=body.channel_id, created_by=ctx.user.id)
+                channel_id=body.channel_id, platform=body.platform or "", created_by=ctx.user.id)
     task.next_run = body.first_run if body.schedule_kind in ("interval", "once") else (
         following(task, utcnow()) if body.schedule_kind != "legacy" else None
     )

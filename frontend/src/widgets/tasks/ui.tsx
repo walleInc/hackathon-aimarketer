@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { api, fmtDate, StatusChip, type TaskItem, type TaskInput, type TaskRun, type Post } from '@/entities/marketing';
+import { api, fmtDate, PLATFORM_RU, StatusChip, type TaskItem, type TaskInput, type TaskRun, type Post } from '@/entities/marketing';
 import { useLoad } from '@/shared/lib';
 import { Button, Card, Input, Textarea, Label, ConfirmAction } from '@/shared/ui';
 import { TelegramConnection } from './telegram-connection';
@@ -7,7 +7,7 @@ import { TelegramConnection } from './telegram-connection';
 const DAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
 const RUN_STATUS: Record<string, string> = { pending: 'Ожидает', running: 'Выполняется', succeeded: 'Готово', failed: 'Ошибка', cancelled: 'Отменено', skipped: 'Пропущено' };
 const initial = (): TaskInput => ({ kind: 'post', prompt: '', schedule_kind: 'daily', interval_minutes: 1440,
-  timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC', local_time: '09:00', weekdays: [0] });
+  timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC', local_time: '09:00', weekdays: [0], platform: '' });
 const formatInZone = (value: string | null, zone: string) => value ? new Date(value.endsWith('Z') ? value : value + 'Z').toLocaleString('ru-RU', { timeZone: zone }) : '—';
 function scheduleLabel(task: TaskItem) {
   if (task.schedule_kind === 'once') return 'Один раз';
@@ -88,6 +88,7 @@ export function Tasks({ id }: { id: number }) {
   const [me] = useLoad(api.me, []);
   const [connections, reloadConnections, connectionError] = useLoad(() => api.telegramAnalytics(id), [id]);
   const [form, setForm] = useState<TaskInput>(initial);
+  const [platforms] = useLoad(api.platforms, []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [openHistory, setOpenHistory] = useState<number | null>(null);
@@ -97,7 +98,8 @@ export function Tasks({ id }: { id: number }) {
     event.preventDefault(); setBusy(true); setError('');
     try {
       await api.createTask(id, { ...form, prompt: form.prompt.trim(), first_run_local: ['once', 'interval'].includes(form.schedule_kind) ? form.first_run_local : undefined,
-        channel_id: form.kind === 'statistics' ? form.channel_id : undefined });
+        channel_id: form.kind === 'statistics' ? form.channel_id : undefined,
+        platform: form.kind === 'post' ? form.platform || undefined : undefined });
       setForm(initial()); reload();
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
@@ -113,6 +115,10 @@ export function Tasks({ id }: { id: number }) {
             {(catalog ?? []).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
           </select></Label>
           <p className="muted">{catalog?.find((item) => item.id === form.kind)?.description}</p>
+          {form.kind === 'post' && <Label>Площадка публикации<select className="task-select" value={form.platform ?? ''} onChange={(e) => change('platform', e.target.value)}>
+            <option value="">Авто (по подключённым)</option>
+            {(platforms ?? []).map((p) => <option key={p} value={p}>{PLATFORM_RU[p] ?? p}</option>)}
+          </select></Label>}
           <Label>Уточнение задачи<Textarea rows={3} maxLength={2000} placeholder="Тема, продукт, рынок или конкуренты" value={form.prompt} onChange={(e) => change('prompt', e.target.value)} /></Label>
           <Label>Расписание<select className="task-select" value={form.schedule_kind} onChange={(e) => change('schedule_kind', e.target.value as TaskInput['schedule_kind'])}>
             <option value="interval">Каждые N часов</option><option value="daily">Ежедневно</option><option value="weekly">По дням недели</option><option value="once">Один раз</option>
@@ -138,6 +144,7 @@ export function Tasks({ id }: { id: number }) {
       <div className="space-y-4">{tasks?.map((task) => <Card className="card" key={task.id}>
         <div className="cardHead"><b>{catalog?.find((item) => item.id === task.kind)?.name ?? 'Подготовка поста'}</b><span>{task.active ? 'Активна' : 'Приостановлена'}</span></div>
         <p>{task.prompt}</p><p>{scheduleLabel(task)} · {task.timezone}</p>
+        {task.kind === 'post' && <p className="muted">Площадка: {task.platform ? (PLATFORM_RU[task.platform] ?? task.platform) : 'авто'}</p>}
         <p className="muted">{task.kind === 'post' && task.schedule_kind !== 'legacy' ? 'Ближайшая публикация' : 'Следующее выполнение'}: {formatInZone(task.next_run, task.timezone)}</p>
         {task.kind === 'post' && task.next_run && task.schedule_kind !== 'legacy' && <p className="muted">Подготовка: {formatInZone(new Date(new Date(task.next_run + 'Z').getTime() - 86400000).toISOString(), task.timezone)}</p>}
         <p className="muted">Последнее планирование: {fmtDate(task.last_run)}</p>

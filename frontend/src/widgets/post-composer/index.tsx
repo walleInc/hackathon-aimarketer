@@ -5,6 +5,8 @@ import { Button, Card, Input, Label, Textarea } from '@/shared/ui';
 
 export function PostComposer({ id, initialItem, onCreated }: {id: number; initialItem?: ContentPlanItem; onCreated?: () => void}) {
   const [plans, , listError] = useLoad(() => api.contentPlans(id), [id]);
+  const [platforms] = useLoad(api.platforms, []);
+  const [platform, setPlatform] = useState('');
   const [planId, setPlanId] = useState(initialItem?.plan_id ?? 0);
   const [day, setDay] = useState(initialItem?.planned_date ?? '');
   const [itemId, setItemId] = useState<number | undefined>(initialItem?.id);
@@ -27,7 +29,7 @@ export function PostComposer({ id, initialItem, onCreated }: {id: number; initia
     <h3>Создать пост</h3>
     <form onSubmit={async (event) => {
       event.preventDefault(); setBusy(true); setError(''); setPost(null);
-      try { setPost(await api.generatePost(prompt.trim(), itemId)); onCreated?.(); }
+      try { setPost(await api.generatePost(prompt.trim(), itemId, platform || undefined)); onCreated?.(); }
       catch (e) { setError((e as Error).message); }
       finally { setBusy(false); }
     }}><fieldset disabled={busy} className="space-y-3">
@@ -40,6 +42,10 @@ export function PostComposer({ id, initialItem, onCreated }: {id: number; initia
           <option value="">Выберите задачу</option>{plan?.items?.filter((i) => i.planned_date === day).map((i) => <option key={i.id} value={i.id}>{i.title}</option>)}
         </select></Label>
       </>}
+      <Label>Площадка<select className="task-select" value={platform} onChange={(e) => setPlatform(e.target.value)}>
+        <option value="">Авто (по подключённым)</option>
+        {(platforms ?? []).map((p) => <option key={p} value={p}>{PLATFORM_RU[p] ?? p}</option>)}
+      </select></Label>
       <Label>Задание для поста<Textarea rows={5} maxLength={4000} value={prompt} onChange={(e) => setPrompt(e.target.value)} required /></Label>
       <p className="muted">Уточните задание перед генерацией. Пост будет отправлен на согласование; дата плана не назначает публикацию.</p>
       <Button disabled={busy || !prompt.trim()}>{busy ? 'Генерируем…' : 'Сгенерировать пост'}</Button>

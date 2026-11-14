@@ -368,9 +368,13 @@ async def _regenerate_post_image(
 
 async def generate_post_from_assignment(
     session: AsyncSession, company_id: int, user: User, text: str, content_plan_item_id: int | None = None,
+    platform: str | None = None,
 ) -> Post:
     """Explicit generation: never route a template assignment into conversational scheduling."""
     company = await session.get(Company, company_id)
+    available = await connected_platforms(session, company_id)
+    if platform is not None and platform not in available:
+        raise ValueError("Площадка не подключена: добавьте канал в «Каналах»")
     await limits.check_token_budget(session, company)
     await limits.check_post_quota(session, company)
     await cache.rate_limit(f"ai:org:{company_id}", settings.ai_rate_limit_per_min)
@@ -385,9 +389,9 @@ async def generate_post_from_assignment(
         final_text, notes = await brand_check(session, company, data["post_text"])
         if not final_text.strip() or len(final_text) > 4096:
             raise ValueError("ИИ вернул текст недопустимой длины")
-        platform = pick_platform(data.get("platform"), await connected_platforms(session, company_id))
+        chosen = platform or pick_platform(data.get("platform"), available)
         post = Post(company_id=company_id, created_by=user.id, text=final_text, check_notes=notes,
-                    platform=platform, image_url=await _make_image(session, company, data, final_text),
+                    platform=chosen, image_url=await _make_image(session, company, data, final_text),
                     content_plan_item_id=content_plan_item_id, content_plan_prompt=text if content_plan_item_id else None)
         session.add(post)
         await session.flush()
