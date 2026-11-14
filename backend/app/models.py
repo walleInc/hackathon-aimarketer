@@ -1,7 +1,7 @@
 """Модели БД. Каждая клиентская таблица содержит company_id — это основа изоляции данных."""
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text, Float, UniqueConstraint, Index
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text, Float, UniqueConstraint, Index, Date
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .db import Base, utcnow
@@ -143,6 +143,50 @@ class TelegramConnection(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
+class ContentPlan(Base):
+    __tablename__ = "content_plans"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    title: Mapped[str] = mapped_column(String(200))
+    start_date: Mapped[date] = mapped_column(Date)
+    end_date: Mapped[date] = mapped_column(Date)
+    posts_per_day: Mapped[int] = mapped_column(Integer)
+    wishes: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class ContentPlanDay(Base):
+    __tablename__ = "content_plan_days"
+    __table_args__ = (UniqueConstraint("plan_id", "day"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    plan_id: Mapped[int] = mapped_column(ForeignKey("content_plans.id"), index=True)
+    day: Mapped[date] = mapped_column(Date)
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    lease_token: Mapped[str] = mapped_column(String(40), default="")
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    queued_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    error: Mapped[str] = mapped_column(Text, default="")
+
+
+class ContentPlanItem(Base):
+    __tablename__ = "content_plan_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    plan_id: Mapped[int] = mapped_column(ForeignKey("content_plans.id"), index=True)
+    planned_date: Mapped[date] = mapped_column(Date)
+    title: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str] = mapped_column(Text)
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    deleted: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
 class Post(Base):
     __tablename__ = "posts"
     __table_args__ = (Index("uq_posts_task_run_id", "task_run_id", unique=True),)
@@ -156,6 +200,8 @@ class Post(Base):
     version: Mapped[int] = mapped_column(Integer, default=1)
     scheduled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     needs_reschedule: Mapped[bool] = mapped_column(Boolean, default=False)
+    content_plan_item_id: Mapped[int | None] = mapped_column(ForeignKey("content_plan_items.id"), nullable=True, index=True)
+    content_plan_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
     task_run_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     external_id: Mapped[str] = mapped_column(String(200), default="")
     published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

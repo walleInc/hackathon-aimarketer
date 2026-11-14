@@ -7,11 +7,14 @@ export type Post = {
   version: number;
   scheduled_at: string | null;
   needs_reschedule?: boolean;
+  content_plan_item_id?: number | null;
+  content_plan_prompt?: string | null;
   error: string;
   created_at: string;
   check_notes?: string;
 };
 export type Me = {
+  name?: string;
   telegram_id: number;
   role: string;
   company: { id: number; name: string } | null;
@@ -117,3 +120,16 @@ export type PostAnalytics = {
   recommendations: { title: string; text: string; post_ids: number[] }[];
   ai_advice: AnalyticsAdvice | null;
 };
+
+export type ContentPlanItem = {
+  id: number; plan_id: number; planned_date: string; title: string; description: string;
+  position: number; version: number; posts: {id: number; status: string}[];
+};
+export type ContentPlan = {
+  id: number; title: string; start_date: string; end_date: string; posts_per_day: number;
+  wishes: string; created_by: number; status: 'generating' | 'ready' | 'failed';
+  completed_days: number; total_days: number;
+  days: {date: string; status: string; error: string}[]; items?: ContentPlanItem[];
+};
+export type ContentPlanInput = {title: string; start_date: string; end_date: string; posts_per_day: number; wishes: string};
+export type ContentPlanItemInput = Pick<ContentPlanItem, 'planned_date' | 'title' | 'description' | 'position'>;

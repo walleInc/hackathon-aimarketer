@@ -535,3 +535,5 @@
 .task-day { display: inline-flex; align-items: center; gap: .35rem; padding: .35rem; }
 .task-run { border-top: 1px solid #475569; padding-top: .8rem; overflow-wrap: anywhere; }
 .task-metrics { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .8rem; max-height: 25rem; overflow-y: auto; }
+
+.plan-item { border-top: 1px solid #c5d4d8; padding-top: 1rem; overflow-wrap: anywhere; }

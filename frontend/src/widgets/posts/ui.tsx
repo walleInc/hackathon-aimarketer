@@ -1,3 +1,4 @@
+import { PostComposer } from '@/widgets/post-composer';
 import { useState } from 'react';
 import type { Post } from "@/entities/marketing";
 import { api, revisionSchema, StatusChip, fmtDate } from "@/entities/marketing";
@@ -17,8 +18,8 @@ import {
   FormErrors,
 } from '@/shared/ui';
 
-export function Posts({ id, canDecide }: { id: number; canDecide: boolean }) {
-  const [posts, reload, loadError] = useLoad(() => api.companyPosts(id), [id]);
+export function Posts({ id, canDecide, employee = false }: { id: number; canDecide: boolean; employee?: boolean }) {
+  const [posts, reload, loadError] = useLoad(() => employee ? api.posts() : api.companyPosts(id), [id, employee]);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState<number | null>(null);
   const [revisionId, setRevisionId] = useState<number | null>(null);
@@ -77,6 +78,7 @@ export function Posts({ id, canDecide }: { id: number; canDecide: boolean }) {
   };
   return (
     <div>
+      {(canDecide || employee) && <PostComposer id={id} onCreated={reload} />}
       {loadError && (
         <p role="alert" className="error">
           {loadError}

@@ -1,5 +1,6 @@
 """Детерминированный провайдер без внешних вызовов — для разработки и тестов."""
 import json
+import re
 
 from .base import LLMResult
 
@@ -9,6 +10,9 @@ POST_WORDS = ("пост", "публикац", "напиши", "создай", "�
 class StubProvider:
     async def complete(self, system: str, messages: list[dict], json_mode: bool = False) -> LLMResult:
         last = messages[-1]["content"] if messages else ""
+        if "КОНТЕНТ_ПЛАН" in last:
+            count = int(re.search(r"Число задач: (\d+)", last).group(1))
+            return LLMResult(text=json.dumps({"items": [{"title": f"Идея {i + 1}", "description": f"Расскажите о продукте: полезный совет {i + 1} с учётом фактов компании."} for i in range(count)]}, ensure_ascii=False))
         if "ПРОВЕРКА_БРЕНДА" in last:
             return LLMResult(text=json.dumps({"ok": True, "issues": [], "fixed_text": ""}))
         if json_mode and any(w in last.lower() for w in POST_WORDS):

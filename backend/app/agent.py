@@ -6,7 +6,7 @@ from PIL import Image
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from . import branding, cache, context_files, limits, platforms, services
+from . import branding, cache, context_files, jobs, limits, platforms, services
 from .config import settings
 from .llm import get_llm
 from .media import media_path
@@ -308,3 +308,31 @@ async def regenerate_post_image(
         except services.InvalidTransition:
             media_path(final_url).unlink(missing_ok=True)
             raise
+
+
+async def generate_post_from_assignment(
+    session: AsyncSession, company_id: int, user: User, text: str, content_plan_item_id: int | None = None,
+) -> Post:
+    """Explicit generation: never route a template assignment into conversational scheduling."""
+    company = await session.get(Company, company_id)
+    await limits.check_token_budget(session, company)
+    await limits.check_post_quota(session, company)
+    await cache.rate_limit(f"ai:org:{company_id}", settings.ai_rate_limit_per_min)
+    await cache.rate_limit(f"ai:user:{user.id}", settings.ai_rate_limit_per_user_per_min)
+    async with jobs.org_slot("ai-generation", company_id):
+        result = await get_llm().complete(await _system_prompt(session, company_id),
+            [{"role": "user", "content": f"Подготовь один готовый пост по заданию: {text}\nНе создавай расписание.\n{FORCE_POST}"}], json_mode=True)
+        await _record_llm(session, company_id, result)
+        data = _parse(result.text)
+        if data.get("action") != "create_post" or not str(data.get("post_text", "")).strip():
+            raise ValueError("ИИ не подготовил пост. Уточните задание и повторите")
+        final_text, notes = await brand_check(session, company, data["post_text"])
+        if not final_text.strip() or len(final_text) > 4096:
+            raise ValueError("ИИ вернул текст недопустимой длины")
+        post = Post(company_id=company_id, created_by=user.id, text=final_text, check_notes=notes,
+                    platform="telegram", image_url=await _make_image(session, company, data, final_text),
+                    content_plan_item_id=content_plan_item_id, content_plan_prompt=text if content_plan_item_id else None)
+        session.add(post)
+        await session.flush()
+        await services.submit_for_approval(session, post)
+        return post
