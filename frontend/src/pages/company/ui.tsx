@@ -13,9 +13,11 @@ import { BrandKit } from '@/widgets/brand-kit';
 import { Knowledge } from '@/widgets/knowledge';
 import { Overview } from '@/widgets/company-overview';
 import { Marketer } from '@/widgets/marketer';
+import { AgentChat } from '@/widgets/agent-chat';
 const TABS = [
   'Обзор',
   'Маркетолог',
+  'ИИ',
   'Знания',
   'Бренд',
   'Каналы',
@@ -66,7 +68,7 @@ export function CompanyPage({
       <Tabs className="company-tabs" value={tab} onValueChange={(value) => setTab(value as TabName)}>
         <div ref={navigation} className="company-navigation">
         <TabsList aria-label="Разделы компании" className="company-tabs-list flex h-auto w-full flex-wrap justify-start gap-1">
-          {TABS.map((t) => (
+          {TABS.filter(t => t !== 'ИИ' || !limitsEditable).map((t) => (
             <TabsTrigger key={t} value={t}>
               {t}
             </TabsTrigger>
@@ -83,6 +85,7 @@ export function CompanyPage({
             />
           )}
         </TabsContent>
+        {!limitsEditable && <TabsContent value="ИИ"><AgentChat /></TabsContent>}
         <TabsContent value="Знания">
           <Knowledge id={id} />
         </TabsContent>

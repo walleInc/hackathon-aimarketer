@@ -4,8 +4,9 @@ import { api, type Me } from '@/entities/marketing';
 import { Admin } from './admin-layout';
 import { Tasks } from '@/widgets/tasks';
 import { Marketer } from '@/widgets/marketer';
+import { AgentChat } from '@/widgets/agent-chat';
 
-/** Mini App — кабинет: тех. администратор видит все компании, администратор компании — свою. Сотрудники работают в чате. */
+/** Company staff share their personal dialogue between Telegram and the cabinet. */
 export default function App() {
   const [me, setMe] = useState<Me | null>(null);
   const [error, setError] = useState('');
@@ -38,7 +39,7 @@ export default function App() {
 
   if (me.role === 'member' && me.company) {
     return <div className="app wide"><header className="top"><div className="brand">AI маркетолог · {me.company.name}</div></header>
-      <Tabs defaultValue="tasks"><TabsList aria-label="Рабочие разделы"><TabsTrigger value="marketing">Маркетолог</TabsTrigger><TabsTrigger value="tasks">Задачи</TabsTrigger></TabsList>
+      <AgentChat /><Tabs defaultValue="tasks"><TabsList aria-label="Рабочие разделы"><TabsTrigger value="marketing">Маркетолог</TabsTrigger><TabsTrigger value="tasks">Задачи</TabsTrigger></TabsList>
         <TabsContent value="marketing"><Marketer id={me.company.id} /></TabsContent><TabsContent value="tasks"><h1>Задачи</h1><Tasks id={me.company.id} /></TabsContent>
       </Tabs></div>;
   }
@@ -50,13 +51,7 @@ export default function App() {
           <span className="logo">AI</span> маркетолог
         </div>
       </header>
-      <Card className="card">
-        <h3>Работа — в чате с ботом</h3>
-        <p>
-          Ставьте задачи и согласовывайте материалы прямо в переписке с ботом.
-          Кабинет нужен администратору компании.
-        </p>
-      </Card>
+      {me.company ? <AgentChat /> : <Card className="card">Для доступа к компании нужна ссылка-приглашение.</Card>}
     </div>
   );
 }

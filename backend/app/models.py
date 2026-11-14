@@ -87,6 +87,9 @@ class Message(Base):
     role: Mapped[str] = mapped_column(String(20))  # user | assistant
     content: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    run_id: Mapped[int | None] = mapped_column(ForeignKey("agent_runs.id"), nullable=True, index=True)
+    post_id: Mapped[int | None] = mapped_column(ForeignKey("posts.id"), nullable=True)
 
 
 class Task(Base):
@@ -142,6 +145,44 @@ class TelegramConnection(Base):
     pending_encrypted: Mapped[str] = mapped_column(Text, default="")
     auth_owner: Mapped[int | None] = mapped_column(Integer, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class AgentRun(Base):
+    __tablename__ = "agent_runs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    task_run_id: Mapped[int | None] = mapped_column(Integer, nullable=True, unique=True, index=True)
+    kind: Mapped[str] = mapped_column(String(30), default="message")
+    prompt: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default="queued", index=True)
+    result: Mapped[str] = mapped_column(Text, default="")
+    image_url: Mapped[str] = mapped_column(String(500), default="")
+    error: Mapped[str] = mapped_column(Text, default="")
+    post_id: Mapped[int | None] = mapped_column(ForeignKey("posts.id"), nullable=True)
+    task_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id"), nullable=True)
+    parent_run_id: Mapped[int | None] = mapped_column(ForeignKey("agent_runs.id"), nullable=True)
+    expected_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reference_url: Mapped[str] = mapped_column(String(500), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class RunDelivery(Base):
+    """Durable notification outbox. One recipient per run; resume at the next unsent chunk."""
+    __tablename__ = "run_deliveries"
+    __table_args__ = (UniqueConstraint("run_id", "telegram_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    run_id: Mapped[int] = mapped_column(ForeignKey("agent_runs.id"), index=True)
+    telegram_id: Mapped[int] = mapped_column(BigInteger)
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+    next_chunk: Mapped[int] = mapped_column(Integer, default=0)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    error: Mapped[str] = mapped_column(Text, default="")
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class Post(Base):

@@ -12,6 +12,8 @@ async function taskApi(page: Page, role = 'member') {
     if (method !== 'GET') writes.push({ method, path, body });
     let json: unknown = [];
     if (path === '/api/me') json = {role, company: {id: 1, name: 'Компания'}, telegram_id: 101};
+    else if (path === '/api/agent/messages') json = {items: [], next_cursor: null};
+    else if (path === '/api/agent/runs') json = [];
     else if (path === '/api/tasks/catalog') json = [
       {id: 'post', name: 'Подготовка поста', description: 'Пост на согласование', requires: []},
       {id: 'market', name: 'Анализ рынка', description: 'Поиск со ссылками', requires: ['web_search']},

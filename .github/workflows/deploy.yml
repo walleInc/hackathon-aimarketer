@@ -3,11 +3,13 @@ name: CI/CD
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 # Деплои идут строго по очереди, незавершённый не прерывается
 concurrency:
-  group: deploy-main
+  group: aimarketer-${{ github.event.pull_request.number || 'main' }}
   cancel-in-progress: false
 
 permissions:

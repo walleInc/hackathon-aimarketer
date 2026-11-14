@@ -84,9 +84,9 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="AI-маркетолог", lifespan=lifespan)
 app.include_router(client.router)
 app.include_router(admin.router)
+app.include_router(analytics.router)
 app.include_router(tasks.router)
 app.include_router(telegram_stats.router)
-app.include_router(analytics.router)
 app.include_router(marketing.router)
 
 

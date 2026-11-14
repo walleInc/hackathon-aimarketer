@@ -16,6 +16,7 @@ from .models import Company, Post, Task, TaskRun
 
 
 log = logging.getLogger(__name__)
+FORCE_POST = "Ответь JSON create_post: post_text — готовый текст публикации, headline, card_text, image_prompt, reply. Не создавай новое расписание."
 
 
 async def search_market(query: str) -> list[dict]:
@@ -48,7 +49,7 @@ async def build_result(session, task: Task, run: TaskRun):
     if task.kind == "post":
         await limits.check_post_quota(session, company)
         res = await get_llm().complete(system + agent.JSON_RULES,
-            [{"role": "user", "content": f"Подготовь один пост сейчас. Это выполнение задачи, не создавай расписание. {task.prompt}\n{agent.FORCE_POST}"}], json_mode=True)
+            [{"role": "user", "content": f"Подготовь один пост сейчас. Это выполнение задачи, не создавай расписание. {task.prompt}\n{FORCE_POST}"}], json_mode=True)
         await agent._record_llm(session, company.id, res)
         data = agent._parse(res.text)
         if data.get("action") != "create_post" or not str(data.get("post_text", "")).strip():
@@ -81,6 +82,7 @@ async def build_result(session, task: Task, run: TaskRun):
 
 
 async def execute_run(run_id: int):
+    from . import marketing
     now, token = utcnow(), uuid.uuid4().hex
     async with SessionLocal() as session:
         claimed = await session.execute(update(TaskRun).where(
@@ -137,8 +139,12 @@ async def execute_run(run_id: int):
             else:
                 await session.commit()
             await services.audit(session, task.company_id, None, "task.run", f"task={task.id} run={run.id}")
-            if task.kind == "report":
-                await jobs.enqueue("notifications", "marketing_report", {"run_id": run.id}, attempts=5)
+            if task.kind in marketing.KINDS:
+                from . import runs
+                try:
+                    await runs.sync_task_results()
+                except Exception:
+                    log.exception("Result delivery will be retried by maintenance for run %s", run.id)
             return {"status": "succeeded"}
         except Exception as exc:
             log.warning("Scheduled run %s failed (%s)", run_id, type(exc).__name__)

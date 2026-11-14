@@ -16,6 +16,38 @@ from .models import (Company, Competitor, ContentPlanItem, MarketingDocument, Ma
                      MarketingSettings, Post, SocialAccount, SocialMetricSnapshot, Task, TaskRun)
 
 KINDS = {"research", "competitors", "hypotheses", "strategy", "plan", "report", "sync"}
+KIND_NAMES = {"research": "Исследование рынка", "competitors": "Анализ конкурентов", "hypotheses": "Гипотезы",
+              "strategy": "Стратегия", "plan": "Контент-план", "report": "Отчёт", "sync": "Статистика Telegram"}
+
+
+def task_prompt(task):
+    config = json.loads(task.prompt)
+    return KIND_NAMES[task.kind] + (": " + config["prompt"] if config.get("prompt") else "")
+
+
+def task_result(task, run):
+    """Human-readable result for the shared chat and durable notification outbox."""
+    if run.status != "succeeded":
+        return run.error
+    data = json.loads(run.result)
+    text = f"{KIND_NAMES[task.kind]} готов.\n\n{data.get('summary', '')}"
+    for finding in data.get("findings", []):
+        text += f"\n\n{finding['title']}\n{finding['detail']}"
+    if data.get("actions"):
+        text += "\n\nРекомендуемые действия:\n" + "\n".join(f"• {a}" for a in data["actions"])
+    if data.get("limitations"):
+        text += "\n\nОграничения:\n" + "\n".join(f"• {a}" for a in data["limitations"])
+    totals = json.loads(run.metrics).get("totals", {})
+    if totals:
+        text += "\n\nИзмеренные показатели:"
+        for key, label in (("views", "Просмотры"), ("reactions", "Реакции"), ("forwards", "Пересылки"), ("comments", "Комментарии")):
+            value = totals.get(key, {}).get("value")
+            text += f"\n{label}: {value if value is not None else 'нет данных'}"
+    sources = json.loads(run.sources)
+    if sources:
+        text += "\n\nИсточники:\n" + "\n".join(s["url"] for s in sources)
+    text += "\n\nПодробности — в разделе «Маркетолог» Mini App."
+    return text
 
 
 def dump(value):

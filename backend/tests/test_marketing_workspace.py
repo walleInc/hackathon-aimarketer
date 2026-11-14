@@ -199,4 +199,6 @@ async def test_weekly_report_runs_autonomously_and_notifies_own_managers(client,
     assert 'Отчёт' in sender.call_args.args[1]
     assert (await state(client))['documents'][0]['kind'] == 'report'
     assert await scheduler.run_due_tasks() == 0
+    from app import runs
+    await runs.maintain()
     sender.assert_awaited_once()
