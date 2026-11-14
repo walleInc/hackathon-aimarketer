@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { api, type Me } from '@/entities/marketing';
 import { Admin } from './admin-layout';
 import { Tasks } from '@/widgets/tasks';
+import { AgentChat } from '@/widgets/agent-chat';
 
 /** Mini App: кабинет компании и личный профиль с общими планами, задачами и постами. */
 export default function App() {
@@ -51,13 +52,7 @@ export default function App() {
           <span className="logo">AI</span> маркетолог
         </div>
       </header>
-      <Card className="card">
-        <h3>Работа — в чате с ботом</h3>
-        <p>
-          Ставьте задачи и согласовывайте материалы прямо в переписке с ботом.
-          Кабинет нужен администратору компании.
-        </p>
-      </Card>
+      {me.company ? <AgentChat /> : <Card className="card">Для доступа к компании нужна ссылка-приглашение.</Card>}
     </div>
   );
 }

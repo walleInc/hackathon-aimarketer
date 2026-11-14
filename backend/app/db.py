@@ -35,7 +35,7 @@ def _add_missing_columns(conn) -> None:
                 v = col.default.arg
                 default = (" DEFAULT TRUE" if v else " DEFAULT FALSE") if isinstance(v, bool) else (f" DEFAULT '{v}'" if isinstance(v, str) else f" DEFAULT {int(v)}")
             conn.execute(text(f'ALTER TABLE {table.name} ADD COLUMN {col.name} {col.type.compile(conn.dialect)}{default}'))
-
+    # create_all skips existing tables, including indexes on newly added columns.
     for table in Base.metadata.sorted_tables:
         for index in table.indexes:
             index.create(conn, checkfirst=True)

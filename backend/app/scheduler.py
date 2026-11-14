@@ -9,7 +9,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy import select, update, or_
 from sqlalchemy.exc import IntegrityError
 
-from . import jobs, services
+from . import jobs, runs, services
 from .config import settings
 from .db import SessionLocal, utcnow
 from .models import Task, TaskRun

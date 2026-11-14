@@ -1,16 +1,16 @@
 from typing import Literal
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .. import agent, cache, limits, post_images, services
+from .. import agent, cache, limits, post_images, runs, services
 from ..media import media_path
 from ..auth import Ctx, get_ctx
 from ..db import get_session
-from ..models import Company, Post, Task
+from ..models import AgentRun, Company, Message, Post, Task
 from ..workflow import InvalidTransition
 
 router = APIRouter(prefix="/api")
@@ -171,7 +171,101 @@ async def upload_image(
 
 
 class MessageIn(BaseModel):
-    text: str
+    text: str = Field(min_length=1, max_length=4000)
+
+
+class RunIn(MessageIn):
+    parent_run_id: int | None = Field(default=None, ge=1)
+    kind: Literal["message", "revise", "image"] = "message"
+    post_id: int | None = Field(default=None, ge=1)
+    version: int | None = Field(default=None, ge=1)
+
+
+def _visible_runs(ctx):
+    own = AgentRun.user_id == ctx.user.id
+    if ctx.can_approve:
+        own = or_(own, and_(AgentRun.user_id.is_(None), AgentRun.task_id.is_not(None)))
+    return and_(AgentRun.company_id == ctx.require_company(), own)
+
+
+@router.post("/agent/runs", status_code=202)
+async def start_run(body: RunIn, background: BackgroundTasks, ctx: Ctx = Depends(get_ctx),
+                    session: AsyncSession = Depends(get_session)):
+    ctx.require_creator()
+    if not body.text.strip():
+        raise HTTPException(422, "Введите запрос")
+    if body.kind != "message" and (not ctx.can_approve or body.post_id is None):
+        raise HTTPException(403, "Для изменения материала нужен его номер и права администратора компании")
+    try:
+        run = await runs.create(session, ctx.require_company(), ctx.user.id, body.text.strip(), kind=body.kind,
+                                post_id=body.post_id, parent_run_id=body.parent_run_id, expected_version=body.version)
+    except services.NotFound:
+        raise HTTPException(404, "Материал или выполнение не найдено")
+    background.add_task(runs.dispatch, run.id)
+    return runs.out(run)
+
+
+@router.post("/agent/runs/reference", status_code=202)
+async def start_reference_run(background: BackgroundTasks, text: str = Form(..., min_length=1, max_length=4000),
+                              reference: UploadFile = File(...), parent_run_id: int | None = Form(None),
+                              ctx: Ctx = Depends(get_ctx), session: AsyncSession = Depends(get_session)):
+    ctx.require_creator()
+    if not text.strip():
+        raise HTTPException(422, "Введите запрос")
+    url = None
+    try:
+        data = post_images.reference_bytes(await reference.read(post_images.MAX_IMAGE_BYTES + 1))
+        url = post_images.save_upload(data)
+        run = await runs.create(session, ctx.require_company(), ctx.user.id, text.strip(),
+                                parent_run_id=parent_run_id, reference_url=url)
+    except (ValueError, services.NotFound) as exc:
+        if url:
+            media_path(url).unlink(missing_ok=True)
+        raise HTTPException(404 if isinstance(exc, services.NotFound) else 422, str(exc))
+    finally:
+        await reference.close()
+    background.add_task(runs.dispatch, run.id)
+    return runs.out(run)
+
+
+@router.get("/agent/runs")
+async def list_runs(ctx: Ctx = Depends(get_ctx), session: AsyncSession = Depends(get_session)):
+    ctx.require_creator()
+    recent = list((await session.execute(select(AgentRun).where(_visible_runs(ctx)).order_by(AgentRun.id.desc()).limit(50))).scalars())
+    active = list((await session.execute(select(AgentRun).where(_visible_runs(ctx), AgentRun.status.in_(["queued", "running"])))).scalars())
+    return [runs.out(run) for run in sorted({r.id: r for r in recent + active}.values(), key=lambda r: r.id)]
+
+
+@router.get("/agent/runs/{run_id}")
+async def get_run(run_id: int, ctx: Ctx = Depends(get_ctx), session: AsyncSession = Depends(get_session)):
+    ctx.require_creator()
+    run = (await session.execute(select(AgentRun).where(AgentRun.id == run_id, _visible_runs(ctx)))).scalar_one_or_none()
+    if run is None:
+        raise HTTPException(404, "Выполнение не найдено")
+    return runs.out(run)
+
+
+@router.get("/agent/messages")
+async def list_messages(before: int | None = Query(None, ge=1), limit: int = Query(50, ge=1, le=100),
+                        ctx: Ctx = Depends(get_ctx), session: AsyncSession = Depends(get_session)):
+    ctx.require_creator()
+    visibility = Message.user_id == ctx.user.id
+    if ctx.can_approve:
+        visibility = or_(visibility, and_(Message.user_id.is_(None), Message.run_id.in_(
+            select(AgentRun.id).where(_visible_runs(ctx), AgentRun.user_id.is_(None)))))
+    query = select(Message).where(Message.company_id == ctx.require_company(), visibility)
+    if before:
+        query = query.where(Message.id < before)
+    rows = list((await session.execute(query.order_by(Message.id.desc()).limit(limit + 1))).scalars())
+    more = len(rows) > limit
+    rows = rows[:limit]
+    items = []
+    for m in reversed(rows):
+        run = await session.get(AgentRun, m.run_id) if m.run_id else None
+        items.append({"id": m.id, "role": m.role, "content": m.content, "created_at": m.created_at,
+                      "run_id": m.run_id, "post_id": m.post_id,
+                      "image_url": run.image_url if run and m.role == "assistant" else ""})
+    return {"items": items, "next_cursor": rows[-1].id if more else None}
 
 
 @router.post("/agent/message")
