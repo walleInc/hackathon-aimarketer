@@ -30,14 +30,6 @@ export const channelSchema = z.object({
       'Укажите @username или ID вида -100…',
     ),
 });
-export const taskSchema = z.object({
-  prompt: required,
-  hours: z
-    .number()
-    .int()
-    .min(1, 'Минимум 1 час')
-    .max(8760, 'Максимум 8760 часов'),
-});
 
 export const revisionSchema = z.object({
   comment: z.string().trim().min(1, 'Опишите необходимые изменения'),

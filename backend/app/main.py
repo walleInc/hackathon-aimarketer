@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from . import cache, events, jobs, tg
 from .config import settings
 from .db import init_db
-from .routers import admin, analytics, client
+from .routers import admin, client, tasks, telegram_stats
 from .scheduler import create_scheduler
 
 logging.basicConfig(level=logging.INFO)
@@ -84,7 +84,8 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="AI-маркетолог", lifespan=lifespan)
 app.include_router(client.router)
 app.include_router(admin.router)
-app.include_router(analytics.router)
+app.include_router(tasks.router)
+app.include_router(telegram_stats.router)
 
 
 @app.get("/health")

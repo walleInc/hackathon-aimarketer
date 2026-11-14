@@ -132,9 +132,7 @@ test('profile persists across tabs; all company sections open on mobile', async 
     fullPage: true,
   });
 });
-test('brand and task schemas block invalid data; task submits trimmed data', async ({
-  page,
-}) => {
+test('brand schema blocks invalid colors', async ({ page }) => {
   const writes = await mockApi(page);
   await page.goto('/');
   await page.getByRole('button', { name: /Тестовая компания/ }).click();
@@ -143,18 +141,6 @@ test('brand and task schemas block invalid data; task submits trimmed data', asy
   await page.getByRole('button', { name: 'Сохранить', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('Введите HEX');
   expect(writes).toHaveLength(0);
-  await page.getByRole('tab', { name: 'Задачи', exact: true }).click();
-  await page.getByLabel('Что делать').fill('   ');
-  await page.getByRole('button', { name: 'Создать', exact: true }).click();
-  await expect(page.getByRole('alert')).toContainText('Заполните поле');
-  expect(writes).toHaveLength(0);
-  await page.getByLabel('Что делать').fill('  Напиши пост  ');
-  await page.getByRole('button', { name: 'Создать', exact: true }).click();
-  await expect.poll(() => writes.length).toBe(1);
-  expect(writes[0].body).toEqual({
-    prompt: 'Напиши пост',
-    interval_minutes: 1440,
-  });
 });
 test('company admin saves profile without sending limits', async ({ page }) => {
   const writes = await mockApi(page, 'approver');

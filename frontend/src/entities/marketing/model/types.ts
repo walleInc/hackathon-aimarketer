@@ -6,6 +6,7 @@ export type Post = {
   status: string;
   version: number;
   scheduled_at: string | null;
+  needs_reschedule?: boolean;
   error: string;
   created_at: string;
   check_notes?: string;
@@ -62,12 +63,32 @@ export type Member = {
   name: string;
   role: string;
 };
+export type TaskKind = 'post' | 'market' | 'recommendations' | 'statistics';
+export type TaskSchedule = 'legacy' | 'interval' | 'daily' | 'weekly' | 'once';
+export type TaskCatalogItem = { id: TaskKind; name: string; description: string; requires: string[] };
+export type TaskInput = {
+  kind: TaskKind; prompt: string; schedule_kind: TaskSchedule;
+  interval_minutes: number; timezone: string; local_time: string; weekdays: number[];
+  first_run_local?: string; channel_id?: number;
+};
+export type TaskRun = {
+  id: number; scheduled_for: string; status: string; started_at: string | null;
+  finished_at: string | null; result: string; error: string; post_id: number | null;
+  sources: {title: string; url: string}[]; metrics: Record<string, unknown>;
+};
+export type TelegramAnalytics = {
+  configured: boolean; web_search_configured: boolean; connected: boolean; can_connect: boolean;
+  channels: {id: number; channel_id: string}[];
+};
 export type TaskItem = {
   id: number;
   prompt: string;
   interval_minutes: number;
   active: boolean;
   last_run: string | null;
+  last_result?: { status: string; result: string; error: string } | null;
+  kind: TaskKind; schedule_kind: TaskSchedule; timezone: string; local_time: string;
+  weekdays: string; next_run: string | null; channel_id: number | null;
 };
 export type AuditItem = {
   id: number;

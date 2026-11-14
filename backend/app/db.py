@@ -33,8 +33,12 @@ def _add_missing_columns(conn) -> None:
             default = ""
             if col.default is not None and col.default.is_scalar:
                 v = col.default.arg
-                default = f" DEFAULT '{v}'" if isinstance(v, str) else f" DEFAULT {int(v)}"
+                default = (" DEFAULT TRUE" if v else " DEFAULT FALSE") if isinstance(v, bool) else (f" DEFAULT '{v}'" if isinstance(v, str) else f" DEFAULT {int(v)}")
             conn.execute(text(f'ALTER TABLE {table.name} ADD COLUMN {col.name} {col.type.compile(conn.dialect)}{default}'))
+
+    for table in Base.metadata.sorted_tables:
+        for index in table.indexes:
+            index.create(conn, checkfirst=True)
 
 
 async def init_db() -> None:

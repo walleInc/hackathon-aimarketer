@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     llm_price_input_per_m: float = 0.0
     llm_price_output_per_m: float = 0.0
 
+    tavily_api_key: str = ""
+    telegram_api_id: int = 0
+    telegram_api_hash: str = ""
+
     ai_images: bool = False  # генерировать картинки моделью (нужен провайдер с поддержкой изображений)
     media_dir: str = "media"
     scheduler_interval_sec: int = 30

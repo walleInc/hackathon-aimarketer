@@ -36,7 +36,7 @@ export async function req<T>(
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(
-      typeof err.detail === 'string' ? err.detail : `HTTP ${res.status}`,
+      typeof err.detail === 'string' ? err.detail : Array.isArray(err.detail) ? err.detail.map((item: {msg?: string}) => item.msg || 'Проверьте поля формы').join('; ') : `HTTP ${res.status}`,
     );
   }
   return res.json();
