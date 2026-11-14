@@ -1,8 +1,9 @@
-import { Card } from '@/shared/ui';
+import { Card, Tabs, TabsList, TabsTrigger, TabsContent } from '@/shared/ui';
 import { useEffect, useState } from 'react';
 import { api, type Me } from '@/entities/marketing';
 import { Admin } from './admin-layout';
 import { Tasks } from '@/widgets/tasks';
+import { Marketer } from '@/widgets/marketer';
 
 /** Mini App — кабинет: тех. администратор видит все компании, администратор компании — свою. Сотрудники работают в чате. */
 export default function App() {
@@ -36,7 +37,10 @@ export default function App() {
     return <Admin companyId={me.company.id} ownerView={false} />;
 
   if (me.role === 'member' && me.company) {
-    return <div className="app wide"><header className="top"><div className="brand">AI маркетолог · {me.company.name}</div></header><h1>Задачи</h1><Tasks id={me.company.id} /></div>;
+    return <div className="app wide"><header className="top"><div className="brand">AI маркетолог · {me.company.name}</div></header>
+      <Tabs defaultValue="tasks"><TabsList aria-label="Рабочие разделы"><TabsTrigger value="marketing">Маркетолог</TabsTrigger><TabsTrigger value="tasks">Задачи</TabsTrigger></TabsList>
+        <TabsContent value="marketing"><Marketer id={me.company.id} /></TabsContent><TabsContent value="tasks"><h1>Задачи</h1><Tasks id={me.company.id} /></TabsContent>
+      </Tabs></div>;
   }
 
   return (

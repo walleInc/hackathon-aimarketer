@@ -4,6 +4,8 @@ info:
   version: 0.1.0
   description: |
     Реализованные маршруты backend и предлагаемые расширения. Задачи и подключение статистики обновлены по app.openapi().
+    Актуальные реализованные /api/marketing/*, /api/analytics/posts и метрики: отдельный docs/marketing-openapi.json,
+    генерируемый из приложения. Он имеет приоритет над историческими proposed-контрактами аналитики ниже.
     Каждая операция помечена `x-status`:
       - `implemented` — есть в коде;
       - `proposed`    — предложено по ТЗ «Кибер 102» (пункт ТЗ указан в `x-tz`).
@@ -15,6 +17,7 @@ security:
 tags:
   - {name: tasks, description: Задачи по расписанию}
   - {name: telegram-analytics, description: Подключение статистики Telegram}
+  - {name: marketing, description: Кабинет маркетолога — реализованные контракты в marketing-openapi.json}
   - {name: service, description: Служебные}
   - {name: client, description: Клиентское API}
   - {name: admin, description: Админское API (роль admin)}
@@ -1297,12 +1300,12 @@ paths:
       responses: {'200': {description: "{totals, by_platform, trend[]}"}}
   /api/analytics/posts:
     get:
-      tags: [proposed-analytics]
+      tags: [marketing]
       summary: Метрики по публикациям
-      x-status: proposed
+      x-status: implemented
       x-tz: "3.6 «Анализ эффективности публикаций»"
-      parameters: [{$ref: '#/components/parameters/Period'}]
-      responses: {'200': {description: "[{post_id, views, likes, comments, shares, er}]"}}
+      parameters: [{name: days, in: query, schema: {type: integer, enum: [0, 7, 30, 90], default: 30}}]
+      responses: {'200': {description: "{period_days, published_posts, sample_size, max_posts, unknown_publication_dates, summary, posts, daily_publications, recommendations, data_hash, ai_advice}; полный контракт в marketing-openapi.json"}}
   /api/analytics/formats:
     get:
       tags: [proposed-analytics]

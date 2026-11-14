@@ -154,6 +154,20 @@ async def agent_message(body: MessageIn, ctx: Ctx = Depends(get_ctx), session: A
     return {"reply": res.reply, "post_id": res.post_id}
 
 
+@router.post("/agent/message/reference")
+async def agent_message_reference(
+    text: str = Form(..., min_length=1, max_length=4000), reference: UploadFile = File(...),
+    ctx: Ctx = Depends(get_ctx), session: AsyncSession = Depends(get_session),
+):
+    ctx.require_creator()
+    try:
+        data = post_images.reference_bytes(await reference.read(post_images.MAX_IMAGE_BYTES + 1))
+        res = await agent.handle_message(session, ctx.require_company(), ctx.user, text, reference=data)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    return {"reply": res.reply, "post_id": res.post_id}
+
+
 
 class RescheduleIn(BaseModel):
     scheduled_at: datetime

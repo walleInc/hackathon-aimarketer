@@ -29,6 +29,25 @@ async def notify_admins(data: dict, ctx: JobCtx):
     await tg.notify_admins(data["text"])
 
 
+@handler("notifications", "marketing_report")
+async def notify_marketing_report(data: dict, ctx: JobCtx):
+    from . import tg
+    from .models import TaskRun, User
+    async with SessionLocal() as session:
+        run = await session.get(TaskRun, int(data["run_id"]))
+        if run is None or run.status != "succeeded":
+            return
+        company = await session.get(Company, run.company_id)
+        recipients = (await session.execute(select(User).where(User.company_id == run.company_id, User.role == "approver"))).scalars().all()
+        if not tg.bot:
+            return
+        summary = json.loads(run.result).get("summary", "")[:2200]
+        link = f"\nОткрыть кабинет: {settings.public_url}" if settings.public_url else "\nОткройте раздел «Маркетолог → Отчёты» в Mini App."
+        for user in recipients:
+            # Let notification queue retry a Telegram failure.
+            await tg.bot.send_message(user.telegram_id, f"Отчёт «{company.name}» готов · #{run.id}\n\n{summary}{link}")
+
+
 # ---------- publishing ----------
 
 @handler("publishing", "publish")

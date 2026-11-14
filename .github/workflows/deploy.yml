@@ -41,6 +41,12 @@ jobs:
           npm ci
           npm run build
 
+      - name: Browser integration with real backend
+        working-directory: frontend
+        run: |
+          npx playwright install --with-deps chromium
+          npm run test:integration
+
   deploy:
     needs: test
     if: github.ref == 'refs/heads/main'
