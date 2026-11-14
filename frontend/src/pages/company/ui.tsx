@@ -13,9 +13,11 @@ import { Channels } from '@/widgets/channels';
 import { BrandKit } from '@/widgets/brand-kit';
 import { Knowledge } from '@/widgets/knowledge';
 import { Overview } from '@/widgets/company-overview';
+import { Marketer } from '@/widgets/marketer';
 import { AgentChat } from '@/widgets/agent-chat';
 const TABS = [
   'Обзор',
+  'Маркетолог',
   'ИИ',
   'Профиль',
   'Знания',
@@ -89,6 +91,9 @@ export function CompanyPage({
         <TabsContent value="Профиль"><Profile id={id} /></TabsContent>
         <TabsContent value="Знания">
           <Knowledge id={id} />
+        </TabsContent>
+        <TabsContent value="Маркетолог">
+          <Marketer id={id} />
         </TabsContent>
         <TabsContent value="Бренд">
           {company && <BrandKit saved={reload} company={company} />}

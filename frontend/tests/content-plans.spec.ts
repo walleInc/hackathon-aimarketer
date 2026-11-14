@@ -14,6 +14,8 @@ async function mockApi(page: Page, role: 'member' | 'approver' = 'member') {
     if (method !== 'GET') writes.push({path, method, body});
     let json: any = [];
     if (path === '/api/me') json = {role, name: 'Маркетолог', company, telegram_id: 101};
+    else if (path === '/api/agent/messages') json = {items: [], next_cursor: null};
+    else if (path === '/api/agent/runs') json = [];
     else if (path === '/api/admin/companies') json = [company];
     else if (path === '/api/content-plans' && method === 'POST') {
       plan = {id: 1, ...body, status: 'ready', completed_days: 2, total_days: 2, created_by: 101,

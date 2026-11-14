@@ -1,8 +1,6 @@
 import { req, headers } from '@/shared/api';
 import type {
-  AgentRun,
-  ChatPage,
-  Post, ContentPlan, ContentPlanInput, ContentPlanItemInput, ContentPlanItem,
+  AgentRun, ChatPage, Post, ContentPlan, ContentPlanInput, ContentPlanItemInput, ContentPlanItem,
   PostAnalytics,
   AnalyticsAdvice,
   MetricName,
@@ -20,14 +18,6 @@ import type {
 const A = '/api/admin';
 
 export const api = {
-  contentPlans: (cid: number) => req<ContentPlan[]>('GET', '/api/content-plans', undefined, {'X-Company-Id': String(cid)}),
-  contentPlan: (cid: number, id: number) => req<ContentPlan>('GET', `/api/content-plans/${id}`, undefined, {'X-Company-Id': String(cid)}),
-  createContentPlan: (body: ContentPlanInput) => req<{id: number}>('POST', '/api/content-plans', body),
-  retryContentPlan: (id: number) => req('POST', `/api/content-plans/${id}/retry`),
-  addContentPlanItem: (id: number, body: ContentPlanItemInput) => req<ContentPlanItem>('POST', `/api/content-plans/${id}/items`, body),
-  editContentPlanItem: (id: number, body: ContentPlanItemInput & {version: number}) => req<ContentPlanItem>('PATCH', `/api/content-plans/items/${id}`, body),
-  deleteContentPlanItem: (id: number, version: number) => req('DELETE', `/api/content-plans/items/${id}?version=${version}`),
-  generatePost: (prompt: string, content_plan_item_id?: number) => req<Post>('POST', '/api/posts/generate', {prompt, content_plan_item_id}),
   agentRuns: () => req<AgentRun[]>('GET', '/api/agent/runs'),
   agentRun: (id: number) => req<AgentRun>('GET', `/api/agent/runs/${id}`),
   messages: (before?: number) => req<ChatPage>('GET', `/api/agent/messages${before ? `?before=${before}` : ''}`),
@@ -48,6 +38,15 @@ export const api = {
     return response.json() as Promise<AgentRun>;
   },
   post: (id: number) => req<Post>('GET', `/api/posts/${id}`),
+
+  contentPlans: (cid: number) => req<ContentPlan[]>('GET', '/api/content-plans', undefined, {'X-Company-Id': String(cid)}),
+  contentPlan: (cid: number, id: number) => req<ContentPlan>('GET', `/api/content-plans/${id}`, undefined, {'X-Company-Id': String(cid)}),
+  createContentPlan: (body: ContentPlanInput) => req<{id: number}>('POST', '/api/content-plans', body),
+  retryContentPlan: (id: number) => req('POST', `/api/content-plans/${id}/retry`),
+  addContentPlanItem: (id: number, body: ContentPlanItemInput) => req<ContentPlanItem>('POST', `/api/content-plans/${id}/items`, body),
+  editContentPlanItem: (id: number, body: ContentPlanItemInput & {version: number}) => req<ContentPlanItem>('PATCH', `/api/content-plans/items/${id}`, body),
+  deleteContentPlanItem: (id: number, version: number) => req('DELETE', `/api/content-plans/items/${id}?version=${version}`),
+  generatePost: (prompt: string, content_plan_item_id?: number) => req<Post>('POST', '/api/posts/generate', {prompt, content_plan_item_id}),
   me: () => req<Me>('GET', '/api/me'),
   posts: (status?: string) =>
     req<Post[]>('GET', `/api/posts${status ? `?status=${status}` : ''}`),

@@ -78,6 +78,9 @@ async def collect_metrics(session, task):
                 continue
             messages.append({"id": message.id, "date": message.date.isoformat(), "views": message.views,
                              "forwards": message.forwards,
+                             "text": (getattr(message, "message", "") or "")[:10000],
+                             "format": "video" if getattr(message, "video", None) else "photo" if getattr(message, "photo", None) else "text",
+                             "comments": getattr(getattr(message, "replies", None), "replies", None),
                              "reactions": sum(r.count for r in message.reactions.results) if message.reactions else 0})
         else:
             truncated = scanned == 2000
@@ -90,6 +93,9 @@ async def collect_metrics(session, task):
                    "reactions": reactions, "forwards": forwards if all(m["forwards"] is not None for m in messages) else None,
                    "engagement_percent": round((reactions + forwards) / views * 100, 2) if views and all(m["views"] is not None and m["forwards"] is not None for m in messages) else None,
                    "messages": messages, "truncated": truncated, "full_statistics": None}
+        if getattr(entity, "id", None):
+            from telethon import utils
+            metrics["resolved_channel"] = str(utils.get_peer_id(entity))
         if getattr(full.full_chat, "can_view_stats", False):
             try:
                 stats = await client.get_stats(entity)
@@ -104,7 +110,7 @@ async def collect_metrics(session, task):
             metrics["full_statistics_unavailable"] = "Полная статистика недоступна этому аккаунту или каналу"
     previous = (await session.execute(select(TaskRun).join(Task).where(
         Task.company_id == task.company_id, Task.channel_id == task.channel_id,
-        Task.kind == "statistics", TaskRun.status == "succeeded",
+        Task.kind.in_(["statistics", "sync"]), TaskRun.status == "succeeded",
     ).order_by(TaskRun.id.desc()).limit(1))).scalar_one_or_none()
     if previous:
         old = json.loads(previous.metrics)
