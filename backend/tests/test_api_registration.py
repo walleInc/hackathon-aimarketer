@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import warnings
 
 import pytest
 
@@ -16,8 +17,14 @@ from tests.conftest import as_user
 ])
 def test_existing_api_routes_remain_registered(path, method):
     assert method in app.openapi()["paths"][path]
-    assert sum(getattr(route, "path", None) == path and method.upper() in getattr(route, "methods", set())
-               for route in app.routes) == 1
+
+
+def test_openapi_has_no_duplicate_operations():
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter('always')
+        app.openapi_schema = None
+        app.openapi()
+    assert not any('Duplicate Operation ID' in str(item.message) for item in caught)
 
 
 @pytest.mark.parametrize("published_at", [None, datetime(2026, 1, 1, 12, 30)])
