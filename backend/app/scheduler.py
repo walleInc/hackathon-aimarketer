@@ -83,6 +83,7 @@ async def run_due_tasks() -> int:
 
 async def run_tick() -> None:
     await run_due_tasks()
+    await runs.maintain()
     from .content_plans import dispatch_days
     await dispatch_days()
     async with SessionLocal() as session:
