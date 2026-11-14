@@ -7,7 +7,7 @@ from PIL import Image
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from . import branding, cache, context_files, jobs, limits, platforms, services
+from . import branding, cache, context_files, jobs, limits, memory, platforms, services
 from .config import settings
 from .llm import get_llm
 from .media import media_path
@@ -55,6 +55,13 @@ Search results are limited to 20 per source; narrow dates or keywords if needed.
 
 def _explicit_creation_request(text: str) -> bool:
     return bool(re.match(r"^\s*(?:пожалуйста[, ]+)?(?:напиши|подготовь|создай|сделай|придумай)\b", text, re.I))
+
+
+FORCE_POST = (
+    "Пользователь просит готовый материал. Ответь ТОЛЬКО JSON вида create_post "
+    "(platform, post_text, headline, card_text, image_prompt, reply) без пояснений. "
+    "post_text — готовый текст публикации, а не обсуждение."
+)
 
 BRAND_CHECK = """ПРОВЕРКА_БРЕНДА
 Проверь текст поста на соответствие правилам бренда, тону и фактам из базы знаний:
@@ -352,3 +359,33 @@ async def generate_post_from_assignment(
         await session.flush()
         await services.submit_for_approval(session, post)
         return post
+
+
+async def handle_message(session: AsyncSession, company_id: int, user: User | None, text: str,
+                         reference: bytes | None = None) -> AgentResult:
+    from . import runs
+    run = await runs.create(session, company_id, user.id if user else None, text)
+    run = await runs.execute_sync(session, run.id, reference=reference)
+    # Preserve the existing validation response for reference generation failures.
+    if reference is not None and run.error:
+        raise ValueError(run.error)
+    return AgentResult(reply=run.error or run.result, post_id=run.post_id, error=run.status == "failed")
+
+
+async def revise_post(session: AsyncSession, post: Post, comment: str, user_id: int | None = None) -> Post:
+    from . import runs
+    run = await runs.create(session, post.company_id, user_id, comment, kind="revise",
+                            post_id=post.id, expected_version=post.version)
+    await runs.execute_sync(session, run.id, propagate=True)
+    await session.refresh(post)
+    return post
+
+
+async def regenerate_post_image(session: AsyncSession, post: Post, prompt: str, user_id: int,
+                                 version: int | None = None) -> Post:
+    from . import runs
+    run = await runs.create(session, post.company_id, user_id, prompt, kind="image",
+                            post_id=post.id, expected_version=post.version if version is None else version)
+    await runs.execute_sync(session, run.id, propagate=True)
+    await session.refresh(post)
+    return post

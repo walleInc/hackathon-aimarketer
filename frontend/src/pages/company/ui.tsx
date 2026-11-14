@@ -16,6 +16,7 @@ import { Overview } from '@/widgets/company-overview';
 import { AgentChat } from '@/widgets/agent-chat';
 const TABS = [
   'Обзор',
+  'ИИ',
   'Профиль',
   'Знания',
   'Бренд',
@@ -84,6 +85,7 @@ export function CompanyPage({
             />
           )}
         </TabsContent>
+        {!limitsEditable && <TabsContent value="ИИ"><AgentChat /></TabsContent>}
         <TabsContent value="Профиль"><Profile id={id} /></TabsContent>
         <TabsContent value="Знания">
           <Knowledge id={id} />
