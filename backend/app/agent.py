@@ -148,20 +148,27 @@ async def brand_check(session: AsyncSession, company: Company, text: str) -> tup
     return (data.get("fixed_text") or text), f"Проверка бренда: исправлено автоматически ({issues})"
 
 
-async def _make_image(session: AsyncSession, company: Company, data: dict, post_text: str) -> str:
+async def _make_image(session: AsyncSession, company: Company, data: dict, post_text: str, reference: bytes | None = None) -> str:
     """Изображение для поста: ИИ-картинка с логотипом (если включена) или брендированная карточка."""
     brand = await branding.load_brand(session, company)
-    if settings.ai_images and data.get("image_prompt"):
-        url = await get_llm().generate_image(data["image_prompt"])
+    if reference is not None or (settings.ai_images and data.get("image_prompt")):
+        prompt = data.get("image_prompt") or post_text
+        llm = get_llm()
+        if reference is not None:
+            url = await llm.generate_image(prompt, reference=reference)
+        else:
+            url = await llm.generate_image(prompt)
         if url and url.startswith("/media/") and media_path(url).exists():
             await _record_usage(session, company.id, "image", 0, 0.0)
             return branding.save_image(branding.place_logo(Image.open(media_path(url)), brand))
+    if reference is not None:
+        raise ValueError("Не удалось создать изображение по референсу. Попробуйте ещё раз.")
     headline = (data.get("headline") or post_text.split(".")[0])[:80]
     card_text = (data.get("card_text") or "")[:160]
     return branding.save_image(branding.render_card(brand, headline, card_text))
 
 
-async def handle_message(session: AsyncSession, company_id: int, user: User | None, text: str) -> AgentResult:
+async def handle_message(session: AsyncSession, company_id: int, user: User | None, text: str, reference: bytes | None = None) -> AgentResult:
     company = await session.get(Company, company_id)
     llm = get_llm()
     try:
@@ -194,6 +201,12 @@ async def handle_message(session: AsyncSession, company_id: int, user: User | No
         for m in reversed(history)
     ]
 
+    if reference is not None:
+        messages[-1]["content"] += (
+            "\nК запросу приложено изображение-референс для генератора картинки. "
+            "Создай пост и image_prompt с инструкциями по использованию референса; "
+            "не утверждай, что видишь содержимое изображения."
+        )
     res = await llm.complete(await _system_prompt(session, company_id), messages, json_mode=True)
     await _record_llm(session, company_id, res)
     data = _parse(res.text)
@@ -231,7 +244,7 @@ async def handle_message(session: AsyncSession, company_id: int, user: User | No
             platform = data.get("platform") if data.get("platform") in platforms.REGISTRY else "telegram"
             post = Post(
                 company_id=company_id, platform=platform, text=final_text, check_notes=notes,
-                image_url=await _make_image(session, company, data, final_text),
+                image_url=await _make_image(session, company, data, final_text, reference=reference),
                 created_by=user.id if user else None,
             )
             session.add(post)

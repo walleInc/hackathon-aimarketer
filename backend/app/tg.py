@@ -81,7 +81,7 @@ async def on_start(message: Message) -> None:
         await message.answer("Технический аккаунт поставщика услуги. Компании настраиваются в кабинете.", reply_markup=_webapp_markup())
     else:
         await message.answer(
-            "Я AI-маркетолог. Напишите задачу обычным текстом." + _ROLE_HELP.get(user.role, ""),
+            "Я AI-маркетолог. Напишите задачу обычным текстом или пришлите одно изображение-референс с заданием в подписи." + _ROLE_HELP.get(user.role, ""),
             reply_markup=_webapp_markup() if user.role == "approver" else None,
         )
 
@@ -243,10 +243,41 @@ async def cancel_edit(message: Message) -> None:
 async def on_post_image(message: Message) -> None:
     async with SessionLocal() as session:
         user = await _get_user(session, message.from_user.id)
-        if not user or user.role != "approver" or user.company_id is None:
-            await message.answer("Менять изображение может только администратор компании.")
+        if not user or user.role not in {"approver", "member"} or user.company_id is None:
+            await message.answer("Для создания поста нужен доступ сотрудника компании.")
             return
         state = await cache.get_state(user.id)
+        if not state:
+            if message.media_group_id:
+                await message.answer("Пришлите один референс с заданием в подписи, без альбома.")
+                return
+            if not message.caption or not message.caption.strip():
+                await message.answer("Пришлите одно изображение-референс и напишите задание для поста в подписи.")
+                return
+            file = message.photo[-1] if message.photo else message.document
+            if file.file_size and file.file_size > post_images.MAX_IMAGE_BYTES:
+                await message.answer("Изображение должно быть не больше 10 МБ.")
+                return
+            downloaded = io.BytesIO()
+            try:
+                await message.bot.download(file, destination=downloaded)
+                reference = post_images.reference_bytes(downloaded.getvalue())
+            except ValueError as exc:
+                await message.answer(str(exc))
+                return
+            await message.answer("Готовлю пост с изображением по референсу…")
+            try:
+                result = await agent.handle_message(
+                    session, user.company_id, user, message.caption.strip(), reference=reference,
+                )
+            except ValueError as exc:
+                await message.answer(str(exc))
+                return
+            await message.answer(result.reply)
+            return
+        if user.role != "approver":
+            await message.answer("Менять изображение может только администратор компании.")
+            return
         if not state.startswith("upload_image:"):
             await message.answer("Сначала нажмите «Загрузить свою картинку» у нужного поста.")
             return

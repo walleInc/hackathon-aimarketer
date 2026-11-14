@@ -41,6 +41,19 @@ export const api = {
     }
     return res.json();
   },
+  chatWithReference: async (text: string, reference: File) => {
+    const fd = new FormData();
+    fd.append('text', text);
+    fd.append('reference', reference);
+    const h = headers();
+    delete h['Content-Type'];
+    const res = await fetch('/api/agent/message/reference', { method: 'POST', headers: h, body: fd });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(typeof error.detail === 'string' ? error.detail : `HTTP ${res.status}`);
+    }
+    return res.json() as Promise<{ reply: string; post_id: number | null }>;
+  },
   chat: (text: string) =>
     req<{ reply: string; post_id: number | null }>(
       'POST',

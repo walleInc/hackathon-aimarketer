@@ -39,15 +39,21 @@ class OpenAIProvider:
             completion_tokens=(u.completion_tokens or 0) if u else 0,
         )
 
-    async def generate_image(self, prompt: str) -> str | None:
+    async def generate_image(self, prompt: str, reference: bytes | None = None) -> str | None:
         try:
             # У других вендоров свои размеры и параметры; используем минимальный запрос.
             options = {}
             if settings.openai_image_model.startswith(("openai/", "gpt-image", "dall-e")):
                 options["size"] = "1024x1024"
-            resp = await self.client.images.generate(
-                model=settings.openai_image_model, prompt=prompt, **options
-            )
+            if reference is not None:
+                resp = await self.client.images.edit(
+                    model=settings.openai_image_model, prompt=prompt,
+                    image=("reference.png", reference, "image/png"), **options,
+                )
+            else:
+                resp = await self.client.images.generate(
+                    model=settings.openai_image_model, prompt=prompt, **options
+                )
         except Exception:
             return None
         item = resp.data[0]

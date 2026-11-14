@@ -153,6 +153,28 @@ async def agent_message(body: MessageIn, ctx: Ctx = Depends(get_ctx), session: A
     return {"reply": res.reply, "post_id": res.post_id}
 
 
+@router.post("/agent/message/reference")
+async def agent_message_reference(
+    text: str = Form(..., min_length=1, max_length=4000),
+    reference: UploadFile = File(...),
+    ctx: Ctx = Depends(get_ctx), session: AsyncSession = Depends(get_session),
+):
+    ctx.require_creator()
+    if not text.strip():
+        raise HTTPException(422, "Укажите задание для поста")
+    try:
+        data = post_images.reference_bytes(await reference.read(post_images.MAX_IMAGE_BYTES + 1))
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    finally:
+        await reference.close()
+    try:
+        res = await agent.handle_message(session, ctx.require_company(), ctx.user, text.strip(), reference=data)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    return {"reply": res.reply, "post_id": res.post_id}
+
+
 class TaskIn(BaseModel):
     prompt: str
     interval_minutes: int = 1440

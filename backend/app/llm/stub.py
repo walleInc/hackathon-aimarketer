@@ -27,5 +27,5 @@ class StubProvider:
             return LLMResult(text=f"{last} (доработано)")
         return LLMResult(text=json.dumps(payload, ensure_ascii=False))
 
-    async def generate_image(self, prompt: str) -> str | None:
+    async def generate_image(self, prompt: str, reference: bytes | None = None) -> str | None:
         return None
